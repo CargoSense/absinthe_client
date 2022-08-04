@@ -1,8 +1,4 @@
-defmodule AbsintheSocketTest do
+defmodule Absinthe.SocketUnitTest do
   use ExUnit.Case
-  doctest AbsintheSocket
-
-  test "greets the world" do
-    assert AbsintheSocket.hello() == :world
-  end
+  doctest Absinthe.Socket
 end
