@@ -3,12 +3,33 @@ defmodule Absinthe.Socket do
   WebSocket client for [Absinthe](https://hexdocs.pm/absinthe).
   """
   use Slipstream, restart: :temporary
-  require Logger
 
   @control_topic "__absinthe__:control"
 
   @doc """
   Pushes a `query` over the given `socket` for execution.
+
+  ## Examples
+
+      {:ok, sock} = Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
+
+      Absinthe.Socket.push(sock,
+        "subscription ($id: ID!) {orderCreated(storeId: $id) { id } }",
+        variables: %{id: "store123"}
+      )
+
+  ### Handling subscription messages
+
+  Results will be sent to the caller in the form of
+  [`Subscription.Data`](`Absinthe.Subscription.Data`) structs.
+
+  In a `GenServer` for instance, you would implement `handle_info/2` callback:
+
+      def handle_info(%Absinthe.Subscription.Data{id: _topic, result: payload}, state) do
+        # code...
+        {:noreply, state}
+      end
+
   """
   @spec push(socket :: pid(), query :: term()) :: :ok
   @spec push(socket :: pid(), query :: term(), opts :: Enumerable.t()) :: :ok
@@ -27,6 +48,11 @@ defmodule Absinthe.Socket do
 
   Subscriptions are cleared asynchronously. This function
   always returns `:ok`.
+
+  ## Examples
+
+      Absinthe.Socket.clear_subscriptions(socket)
+
   """
   @spec clear_subscriptions(socket :: pid()) :: :ok
   def clear_subscriptions(socket) do
@@ -36,6 +62,11 @@ defmodule Absinthe.Socket do
 
   @doc """
   Starts a Absinthe client process.
+
+  ## Examples
+
+      Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
+
   """
   @spec start_link(opts :: Keyword.t()) :: GenServer.on_start()
   def start_link(opts) do
