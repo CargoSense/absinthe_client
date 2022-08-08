@@ -27,23 +27,26 @@ defmodule Absinthe.SocketUnitTest do
 
   test "receives messages from an active subscription" do
     client = start_client!()
+    sub_id = subscribe!(client)
 
-    # client: sends "subscription" to the server
-    msg = "msg:#{System.unique_integer()}"
-    assert :ok = Absinthe.Socket.push(client, msg)
-
-    # server: receives subscription and replies with subscriptionId
-    assert_push @control_topic, "doc", %{query: ^msg}, ref
-    reply(client, ref, {:ok, %{"subscriptionId" => sub_id = sub_id()}})
-
-    # server: pushes message to subscription topic
-    expected_result = %{"id" => result_id()}
+    expected_result = %{"id" => result_id(client)}
     push(client, sub_id, "subscription:data", %{"result" => expected_result})
 
     assert_receive %Absinthe.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
   end
 
-  test "clear_subscriptions/1 unsubscribes from all active subscriptions"
+  test "clear_subscriptions/1 unsubscribes from all active subscriptions" do
+    client = start_client!()
+    sub_a = subscribe!(client)
+    sub_b = subscribe!(client)
+
+    :ok = Absinthe.Socket.clear_subscriptions(client)
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_b}
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_a}
+
+    push(client, sub_b, "subscription:data", %{"result" => "should_not_be_received"})
+    refute_receive %Absinthe.Subscription.Data{id: ^sub_b}, 100
+  end
 
   test "enqueues subscriptions and sends on reconnect"
 
@@ -53,7 +56,21 @@ defmodule Absinthe.SocketUnitTest do
     client_pid
   end
 
-  defp sub_id, do: unique_id(:sub)
-  defp result_id, do: unique_id(:result)
-  defp unique_id(pre), do: "#{pre}:#{System.unique_integer([:positive, :monotonic])}"
+  defp subscribe!(client, query \\ subscription_query()) do
+    # client: sends subscription to the server
+    assert :ok = Absinthe.Socket.push(client, query)
+
+    # server: receives subscription and replies with subscriptionId
+    assert_push @control_topic, "doc", %{query: ^query}, ref
+    reply(client, ref, {:ok, %{"subscriptionId" => sub_id = sub_id(client)}})
+
+    sub_id
+  end
+
+  defp subscription_query, do: "subscription{ #{new_unique_id()} }"
+
+  defp client_id(client) when is_pid(client), do: "client:#{inspect(client)}"
+  defp sub_id(client), do: "#{client_id(client)}|sub:#{new_unique_id()}"
+  defp result_id(client), do: "#{client_id(client)}|result:#{new_unique_id()}"
+  defp new_unique_id, do: System.unique_integer([:positive, :monotonic])
 end
