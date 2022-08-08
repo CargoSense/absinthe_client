@@ -51,7 +51,8 @@ defmodule Absinthe.SocketUnitTest do
   test "enqueues subscriptions and sends on reconnect"
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
-    client_pid = start_supervised!({Absinthe.Socket, opts})
+    client_opts = Keyword.put_new(opts, :test_mode?, true)
+    client_pid = start_supervised!({Absinthe.Socket, client_opts})
     connect_and_assert_join client_pid, @control_topic, %{}, :ok
     client_pid
   end
