@@ -31,8 +31,8 @@ defmodule Absinthe.Socket do
       end
 
   """
-  @spec push(socket :: pid(), query :: term()) :: :ok
-  @spec push(socket :: pid(), query :: term(), opts :: Enumerable.t()) :: :ok
+  @spec push(socket :: GenServer.server(), query :: term()) :: :ok
+  @spec push(socket :: GenServer.server(), query :: term(), opts :: Enumerable.t()) :: :ok
   def push(socket, query, opts \\ []) do
     payload =
       opts
@@ -54,7 +54,7 @@ defmodule Absinthe.Socket do
       Absinthe.Socket.clear_subscriptions(socket)
 
   """
-  @spec clear_subscriptions(socket :: pid()) :: :ok
+  @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
   def clear_subscriptions(socket) do
     send(socket, {:clear_subscriptions, self()})
     :ok
