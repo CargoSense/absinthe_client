@@ -40,7 +40,6 @@ defmodule Absinthe.SocketTest.UserSocket do
 
   @impl Phoenix.Socket
   def connect(params, socket, connect_info) do
-    dbg({params, connect_info})
     {:ok, socket}
   end
 
