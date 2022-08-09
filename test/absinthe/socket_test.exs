@@ -35,17 +35,29 @@ defmodule Absinthe.SocketUnitTest do
     assert_receive %Absinthe.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
   end
 
+  test "active_subscriptions/1 returns a list of active subscription ids" do
+    client = start_client!()
+    sub_a = subscribe!(client)
+    sub_b = subscribe!(client)
+
+    assert client |> Absinthe.Socket.active_subscription_ids() |> Enum.sort() ==
+             Enum.sort([sub_a, sub_b])
+  end
+
   test "clear_subscriptions/1 unsubscribes from all active subscriptions" do
     client = start_client!()
     sub_a = subscribe!(client)
     sub_b = subscribe!(client)
 
     :ok = Absinthe.Socket.clear_subscriptions(client)
-    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_b}
-    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_a}
 
-    push(client, sub_b, "subscription:data", %{"result" => "should_not_be_received"})
-    refute_receive %Absinthe.Subscription.Data{id: ^sub_b}, 100
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_b}, sub_b_reply_ref
+    reply(client, sub_b_reply_ref, {:ok, %{"subscriptionId" => sub_b}})
+
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_a}, sub_a_reply_ref
+    reply(client, sub_a_reply_ref, {:ok, %{"subscriptionId" => sub_a}})
+
+    assert Absinthe.Socket.active_subscription_ids(client) == []
   end
 
   test "enqueues subscriptions and sends on reconnect"

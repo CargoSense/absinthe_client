@@ -44,6 +44,13 @@ defmodule Absinthe.Socket do
   end
 
   @doc """
+  Returns a list of active subscription IDs.
+  """
+  def active_subscription_ids(socket) do
+    GenServer.call(socket, :list_active_subscription_ids)
+  end
+
+  @doc """
   Clears all subscriptions on the given socket.
 
   Subscriptions are cleared asynchronously. This function
@@ -186,6 +193,11 @@ defmodule Absinthe.Socket do
     )
 
     {:noreply, socket}
+  end
+
+  @impl Slipstream
+  def handle_call(:list_active_subscription_ids, _from, socket) do
+    {:reply, Map.keys(socket.assigns.active_subscriptions), socket}
   end
 
   defp push_messages(%{assigns: %{channel_connected: true}} = socket) do
