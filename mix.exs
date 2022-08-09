@@ -10,7 +10,8 @@ defmodule Absinthe.Socket.MixProject do
       deps: deps(),
       source_url: "https://github.com/CargoSense/absinthe_socket",
       name: "Absinthe.Socket",
-      docs: docs()
+      docs: docs(),
+      test_coverage: [summary: [threshold: 80]]
     ]
   end
 
