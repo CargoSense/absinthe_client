@@ -35,7 +35,7 @@ defmodule Absinthe.SocketUnitTest do
     assert_receive %Absinthe.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
   end
 
-  test "active_subscriptions/1 returns a list of active subscription ids" do
+  test "active_subscription_ids/1 returns a list of active subscription ids" do
     client = start_client!()
     sub_a = subscribe!(client)
     sub_b = subscribe!(client)
