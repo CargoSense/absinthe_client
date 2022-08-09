@@ -103,6 +103,20 @@ defmodule Absinthe.Socket do
   end
 
   @impl Slipstream
+  def handle_disconnect(_reason, socket) do
+    case reconnect(socket) do
+      {:ok, socket} ->
+        {:ok,
+         socket
+         |> assign(:channel_connected, false)
+         |> enqueue_active_subscriptions()}
+
+      {:error, reason} ->
+        {:stop, reason, socket}
+    end
+  end
+
+  @impl Slipstream
   def handle_join(@control_topic, _join_response, socket) do
     {:ok,
      socket
@@ -219,5 +233,16 @@ defmodule Absinthe.Socket do
 
   defp push_messages(socket) do
     socket
+  end
+
+  defp enqueue_active_subscriptions(socket) do
+    %{active_subscriptions: subs, pending: pending} = socket.assigns
+
+    new_pending =
+      Enum.reduce(subs, pending, fn {_, %{payload: payload, pid: pid}}, acc ->
+        [%{payload: payload, pid: pid} | acc]
+      end)
+
+    assign(socket, active_subscriptions: %{}, pending: new_pending)
   end
 end

@@ -60,7 +60,33 @@ defmodule Absinthe.SocketUnitTest do
     assert Absinthe.Socket.active_subscription_ids(client) == []
   end
 
-  test "enqueues subscriptions and sends on reconnect"
+  test "enqueues on disconnect and re-subscribes on reconnect" do
+    client = start_client!()
+
+    # client: sends subscription to the server
+    query = "msg:#{System.unique_integer()}"
+    assert :ok = Absinthe.Socket.push(client, query)
+
+    # server: receives subscription and replies with subscriptionId
+    assert_push @control_topic, "doc", %{query: ^query}, ref
+    reply(client, ref, {:ok, %{"subscriptionId" => sub_id = sub_id(client)}})
+
+    assert Absinthe.Socket.active_subscription_ids(client) == [sub_id]
+
+    disconnect(client, :closed)
+
+    connect_and_assert_join client, @control_topic, %{}, :ok
+
+    assert_push @control_topic, "doc", %{query: ^query}, resub_ref, 1000
+    reply(client, resub_ref, {:ok, %{"subscriptionId" => resub_id = sub_id(client)}})
+
+    assert Absinthe.Socket.active_subscription_ids(client) == [resub_id]
+
+    expected_result = %{"id" => result_id(client)}
+    push(client, resub_id, "subscription:data", %{"result" => expected_result})
+
+    assert_receive %Absinthe.Subscription.Data{id: ^resub_id, result: ^expected_result}
+  end
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
     client_opts = Keyword.put_new(opts, :test_mode?, true)
