@@ -1,14 +1,18 @@
+Code.require_file("../support/http_client.exs", __DIR__)
+
 defmodule Absinthe.Integration.SubscriptionsTest do
   use ExUnit.Case, async: true
 
   # server requirements:
-  # - [ ] AbsinthePhoenix server
-  # - [ ] GraphQL schema w/ defined subscription(s)
+  # - [x] AbsinthePhoenix server
+  # - [x] GraphQL schema
+  # - [ ] GraphQL subscription
 
   setup do
     # setup steps:
     # - [ ] start a client (client connects and joins control topic)
-    :ok
+
+    {:ok, %{http_port: Absinthe.SocketTest.Endpoint.http_port()}}
   end
 
   test "pushes a subscription to the server and receives a success reply"
@@ -20,6 +24,10 @@ defmodule Absinthe.Integration.SubscriptionsTest do
   # - [ ] assert we receive a reply with an error
   # - [ ] Push a mutation to the server
   # - [ ] assert we received a reply with an error (invalid query?)
+  # - [ ] Push a query to the server
+  # - [ ] assert we received a reply with an error
+  # - [ ] Push multiple root operations without an operationName
+  # - [ ] assert we received a reply with an error
 
   test "forwards a subscription message to the subscribed caller"
   # - [ ] Push a subscription to the server
