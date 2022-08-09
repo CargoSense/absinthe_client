@@ -39,7 +39,7 @@ defmodule Absinthe.SocketTest.UserSocket do
     schema: Absinthe.SocketTest.Schema
 
   @impl Phoenix.Socket
-  def connect(params, socket, connect_info) do
+  def connect(_params, socket, _connect_info) do
     {:ok, socket}
   end
 
