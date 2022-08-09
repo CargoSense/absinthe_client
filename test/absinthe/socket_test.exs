@@ -5,7 +5,7 @@ defmodule Absinthe.SocketUnitTest do
   @control_topic "__absinthe__:control"
 
   test "connects and joins control topic" do
-    socket_pid = start_supervised!({Absinthe.Socket, uri: "wss://localhost"})
+    socket_pid = start_supervised!({Absinthe.Socket, uri: "wss://localhost", test_mode?: true})
     connect_and_assert_join socket_pid, @control_topic, %{}, :ok
   end
 
