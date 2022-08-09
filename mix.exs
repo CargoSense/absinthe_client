@@ -24,7 +24,11 @@ defmodule Absinthe.Socket.MixProject do
     [
       {:castore, ">= 0.0.0"},
       {:slipstream, "~> 1.0"},
-      {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false}
+      # Dev/Test dependencies
+      {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false},
+      {:jason, ">= 0.0.0", only: [:dev, :docs, :test]},
+      {:plug_cowboy, "~> 2.0", only: [:dev, :test]},
+      {:absinthe_phoenix, "~> 2.0.0", only: [:dev, :docs, :test]}
     ]
   end
 
