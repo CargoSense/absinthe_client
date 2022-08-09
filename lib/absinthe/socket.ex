@@ -31,8 +31,8 @@ defmodule Absinthe.Socket do
       end
 
   """
-  @spec push(socket :: pid(), query :: term()) :: :ok
-  @spec push(socket :: pid(), query :: term(), opts :: Enumerable.t()) :: :ok
+  @spec push(socket :: GenServer.server(), query :: term()) :: :ok
+  @spec push(socket :: GenServer.server(), query :: term(), opts :: Enumerable.t()) :: :ok
   def push(socket, query, opts \\ []) do
     payload =
       opts
@@ -41,6 +41,13 @@ defmodule Absinthe.Socket do
 
     send(socket, {:run, payload, self()})
     :ok
+  end
+
+  @doc """
+  Returns a list of active subscription IDs.
+  """
+  def active_subscription_ids(socket) do
+    GenServer.call(socket, :list_active_subscription_ids)
   end
 
   @doc """
@@ -54,7 +61,7 @@ defmodule Absinthe.Socket do
       Absinthe.Socket.clear_subscriptions(socket)
 
   """
-  @spec clear_subscriptions(socket :: pid()) :: :ok
+  @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
   def clear_subscriptions(socket) do
     send(socket, {:clear_subscriptions, self()})
     :ok
@@ -93,6 +100,20 @@ defmodule Absinthe.Socket do
   @impl Slipstream
   def handle_connect(socket) do
     {:ok, join(socket, @control_topic)}
+  end
+
+  @impl Slipstream
+  def handle_disconnect(_reason, socket) do
+    case reconnect(socket) do
+      {:ok, socket} ->
+        {:ok,
+         socket
+         |> assign(:channel_connected, false)
+         |> enqueue_active_subscriptions()}
+
+      {:error, reason} ->
+        {:stop, reason, socket}
+    end
   end
 
   @impl Slipstream
@@ -188,6 +209,11 @@ defmodule Absinthe.Socket do
     {:noreply, socket}
   end
 
+  @impl Slipstream
+  def handle_call(:list_active_subscription_ids, _from, socket) do
+    {:reply, Map.keys(socket.assigns.active_subscriptions), socket}
+  end
+
   defp push_messages(%{assigns: %{channel_connected: true}} = socket) do
     %{inflight: inflight_msgs, pending: pending_msgs} = socket.assigns
 
@@ -207,5 +233,16 @@ defmodule Absinthe.Socket do
 
   defp push_messages(socket) do
     socket
+  end
+
+  defp enqueue_active_subscriptions(socket) do
+    %{active_subscriptions: subs, pending: pending} = socket.assigns
+
+    new_pending =
+      Enum.reduce(subs, pending, fn {_, %{payload: payload, pid: pid}}, acc ->
+        [%{payload: payload, pid: pid} | acc]
+      end)
+
+    assign(socket, active_subscriptions: %{}, pending: new_pending)
   end
 end
