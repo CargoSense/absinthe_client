@@ -57,3 +57,4 @@ jobs:
         with:
           name: coverage
           path: cover
+        if: ${{matrix.coverage}}
