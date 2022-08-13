@@ -6,28 +6,123 @@ Application.put_env(:absinthe_socket, Absinthe.SocketTest.Endpoint,
   server: true
 )
 
-defmodule Absinthe.SocketTest.Schema do
-  use Absinthe.Schema
+defmodule Absinthe.SocketTest.DB do
+  use Supervisor
 
-  @desc "An item"
-  object :item do
-    field(:id, :id)
-    field(:name, :string)
+  def start_link(arg) do
+    Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
-  # Example data
-  @items %{
-    "foo" => %{id: "foo", name: "Foo"},
-    "bar" => %{id: "bar", name: "Bar"}
+  @creators %{
+    elixir: %{name: "José Valim"},
+    absinthe: %{name: "Ben Wilson"},
+    phoenix: %{name: "Chris McCord"}
   }
 
-  query do
-    field :item, :item do
-      arg(:id, non_null(:id))
+  @repo_comments_table :absinthe_socket_test_db_repo_comments
 
-      resolve(fn %{id: item_id}, _ ->
-        {:ok, @items[item_id]}
-      end)
+  @impl true
+  def init(_arg) do
+    :ets.new(@repo_comments_table, [:set, :public, :named_table])
+
+    children = []
+
+    Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  def fetch(:creators, repo) do
+    case Map.fetch(@creators, repo) do
+      {:ok, %{} = _item} = okay ->
+        okay
+
+      :error ->
+        {:error, "no creator for repo '#{inspect(repo)}' was found"}
+    end
+  end
+
+  def fetch(:repo_comments, %{repository: repo, id: id}) do
+    case :ets.lookup(@repo_comments_table, {repo, id}) do
+      [{_id, comment}] -> {:ok, comment}
+      [] -> {:error, "no comment for repo '#{inspect(repo)}' with ID #{id} was found"}
+    end
+  end
+
+  def fetch(table, args) do
+    error_invalid_args(table, args, :fetch, 2)
+  end
+
+  def insert(:repo_comments, %{input: %{repository: repo, commentary: _} = attrs}) do
+    comment = Map.put(attrs, :id, "#{System.unique_integer([:positive, :monotonic])}")
+    :ets.insert(@repo_comments_table, {{repo, comment.id}, comment})
+
+    {:ok, comment}
+  end
+
+  def insert(table, args) do
+    error_invalid_args(table, args, :insert, 2)
+  end
+
+  defp error_invalid_args(table, args, fun, arity) do
+    {:error,
+     "invalid args given to #{inspect(__MODULE__)}.#{fun}/#{arity} for table #{inspect(table)}, got: #{inspect(args)}"}
+  end
+end
+
+defmodule Absinthe.SocketTest.Schema do
+  use Absinthe.Schema
+  alias Absinthe.SocketTest.DB
+
+  enum :repository do
+    description "A code repository or project"
+
+    value :elixir, description: "Elixir is a dynamic, functional language"
+    value :absinthe, description: "The GraphQL toolkit for Elixir"
+    value :phoenix, description: "Peace of mind from prototype to production"
+  end
+
+  @desc "A repository creator"
+  object :creator do
+    field :name, :string
+  end
+
+  @desc "A repository comment"
+  object :repo_comment do
+    field :id, :id
+    field :commentary, :string
+    field :repository, :repository
+  end
+
+  input_object :repo_comment_input do
+    field :repository, non_null(:repository)
+    field :commentary, non_null(:string)
+  end
+
+  query do
+    field :creator, :creator do
+      arg :repository, non_null(:repository)
+
+      resolve fn %{repository: repo}, _ ->
+        DB.fetch(:creators, repo)
+      end
+    end
+
+    field :repo_comment, :repo_comment do
+      arg :repository, non_null(:repository)
+      arg :id, non_null(:id)
+
+      resolve fn args, _ ->
+        DB.fetch(:repo_comments, args)
+      end
+    end
+  end
+
+  mutation do
+    field :repo_comment, :repo_comment do
+      arg :input, non_null(:repo_comment_input)
+
+      resolve fn _, args, _ ->
+        DB.insert(:repo_comments, args)
+      end
     end
   end
 end
@@ -74,6 +169,7 @@ end
 
 Supervisor.start_link(
   [
+    Absinthe.SocketTest.DB,
     {Phoenix.PubSub, name: Absinthe.SocketTest.PubSub, adapter: Phoenix.PubSub.PG2},
     Absinthe.SocketTest.Endpoint,
     {Absinthe.Subscription, Absinthe.SocketTest.Endpoint}

@@ -10,19 +10,24 @@ defmodule Absinthe.Socket.Integration.SocketTest do
 
   test "push/3 pushes a doc over the socket and receives a reply", %{socket_url: uri} do
     query = """
-    query GetItem($id: ID!) {
-      item(id: $id) {
+    query Creator($repository: Repository!) {
+      creator(repository: $repository) {
         name
       }
     }
     """
 
     client = start_supervised!({Absinthe.Socket, uri: uri})
-    :ok = Absinthe.Socket.push(client, query, variables: %{"id" => "foo"}, ref: ref = make_ref())
+
+    :ok =
+      Absinthe.Socket.push(client, query,
+        variables: %{"repository" => "ABSINTHE"},
+        ref: ref = make_ref()
+      )
 
     assert_receive %Absinthe.Socket.Reply{
       ref: ^ref,
-      result: {:ok, %{"data" => %{"item" => %{"name" => "Foo"}}}}
+      result: {:ok, %{"data" => %{"creator" => %{"name" => "Ben Wilson"}}}}
     }
   end
 end
