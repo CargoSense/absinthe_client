@@ -3,6 +3,7 @@ Application.put_env(:absinthe_socket, Absinthe.SocketTest.Endpoint,
   secret_key_base: "HOJE5xctETrtYS5RfAG+Ivz35iKH7JXyVz7MN6ExwmjIDVMVXoMbpHrp8ZEt++cK",
   check_origin: false,
   pubsub_server: Absinthe.SocketTest.PubSub,
+  render_errors: [view: Absinthe.SocketTest.ErrorView],
   server: true
 )
 
@@ -12,6 +13,12 @@ defmodule Absinthe.SocketTest.DB do
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
+
+  @repos %{
+    elixir: %{name: "elixir-lang/elixir", creator: nil, comments: nil},
+    absinthe: %{name: "absinthe-graphql/absinthe", creator: nil, comments: nil},
+    phoenix: %{name: "phoenixframework/phoenix", creator: nil, comments: nil}
+  }
 
   @creators %{
     elixir: %{name: "José Valim"},
@@ -31,12 +38,19 @@ defmodule Absinthe.SocketTest.DB do
   end
 
   def fetch(:creators, repo) do
-    case Map.fetch(@creators, repo) do
-      {:ok, %{} = _item} = okay ->
-        okay
+    fetch_from_attr(@creators, repo, fn ->
+      "no creator for repo '#{inspect(repo)}' was found"
+    end)
+  end
 
-      :error ->
-        {:error, "no creator for repo '#{inspect(repo)}' was found"}
+  def fetch(:repos, name) do
+    with {:ok, repo} <-
+           fetch_from_attr(@repos, name, fn ->
+             "no repo named '#{inspect(name)}' was found"
+           end),
+         {:ok, creator} <- fetch(:creators, name) do
+      # todo: fetch comments
+      {:ok, %{repo | creator: creator}}
     end
   end
 
@@ -49,6 +63,13 @@ defmodule Absinthe.SocketTest.DB do
 
   def fetch(table, args) do
     error_invalid_args(table, args, :fetch, 2)
+  end
+
+  defp fetch_from_attr(attr, key, error_fun) do
+    case Map.fetch(attr, key) do
+      {:ok, %{} = _item} = okay -> okay
+      :error -> {:error, error_fun.()}
+    end
   end
 
   def insert(:repo_comments, %{input: %{repository: repo, commentary: _} = attrs}) do
@@ -78,6 +99,12 @@ defmodule Absinthe.SocketTest.Schema do
     value :elixir, description: "Elixir is a dynamic, functional language"
     value :absinthe, description: "The GraphQL toolkit for Elixir"
     value :phoenix, description: "Peace of mind from prototype to production"
+  end
+
+  @desc "A repository"
+  object :repo do
+    field :name, :string
+    field :creator, :creator
   end
 
   @desc "A repository creator"
@@ -122,6 +149,23 @@ defmodule Absinthe.SocketTest.Schema do
 
       resolve fn _, args, _ ->
         DB.insert(:repo_comments, args)
+      end
+    end
+  end
+
+  subscription do
+    field :repo_comment_subscribe, :repo_comment do
+      arg :repository, non_null(:repository)
+
+      config fn args, _ ->
+        {:ok, topic: args.repository}
+      end
+
+      trigger :repo_comment, topic: & &1.repository
+
+      resolve fn comment, _, _ ->
+        repo = DB.fetch(:repos, comment.repository)
+        {:ok, Map.put(comment, :repo, repo)}
       end
     end
   end
@@ -177,5 +221,5 @@ Supervisor.start_link(
   strategy: :one_for_one
 )
 
-ExUnit.configure(assert_receive_timeout: 250, refute_receive_timeout: 300)
+ExUnit.configure(assert_receive_timeout: 300, refute_receive_timeout: 350)
 ExUnit.start(exclude: :integration)

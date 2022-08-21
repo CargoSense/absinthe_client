@@ -15,7 +15,7 @@ defmodule Absinthe.Socket.Integration.EndpointTest do
   end
 
   test "endpoint accepts creator query", %{http_port: port} do
-    assert graphql!(
+    assert HTTPClient.graphql!(
              port: port,
              query: """
              query Creator($repository: Repository!) {
@@ -36,7 +36,7 @@ defmodule Absinthe.Socket.Integration.EndpointTest do
                }
              }
            } =
-             graphql!(
+             HTTPClient.graphql!(
                port: port,
                query: """
                mutation RepoCommentMutation($input: RepoCommentInput!){
@@ -53,7 +53,7 @@ defmodule Absinthe.Socket.Integration.EndpointTest do
                }
              )
 
-    assert graphql!(
+    assert HTTPClient.graphql!(
              port: port,
              query: """
              query RepoCommentQuery($repo: Repository!, $id: ID!){
@@ -67,40 +67,5 @@ defmodule Absinthe.Socket.Integration.EndpointTest do
                "id" => comment_id
              }
            ) == %{"data" => %{"repoComment" => %{"commentary" => "functional ftw!"}}}
-  end
-
-  defp graphql!(opts) do
-    opts = Keyword.new(opts)
-    {query, opts} = Keyword.pop(opts, :query)
-
-    unless query do
-      raise ArgumentError, ":query is required for graphql!/1"
-    end
-
-    {body_map, opts} =
-      case Keyword.pop(opts, :variables) do
-        {nil, opts} ->
-          {%{query: query}, opts}
-
-        {variables, opts} ->
-          {%{query: query, variables: variables}, opts}
-      end
-
-    body = Jason.encode!(body_map)
-
-    opts
-    |> Keyword.put(:body, body)
-    |> Keyword.put(:method, "POST")
-    |> Keyword.put_new(:path, "/graphql")
-    |> Keyword.update(
-      :headers,
-      [{"content-type", "application/json"}],
-      &(&1 ++ [{"content-type", "application/json"}])
-    )
-    |> HTTPClient.request()
-    |> case do
-      {:ok, %{body: body}} -> Jason.decode!(body)
-      {:error, exc} -> raise exc
-    end
   end
 end
