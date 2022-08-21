@@ -51,24 +51,21 @@ defmodule Absinthe.SocketTest.Endpoint do
   use Phoenix.Endpoint, otp_app: :absinthe_socket
   use Absinthe.Phoenix.Endpoint
 
-  plug(Plug.Session,
+  plug Plug.Session,
     store: :cookie,
     key: "_absinthe_socket_key",
     signing_salt: "tr9gMQxErRYmg4"
-  )
 
-  socket("/socket", Absinthe.SocketTest.UserSocket,
+  socket "/socket", Absinthe.SocketTest.UserSocket,
     websocket: true,
     longpoll: false
-  )
 
-  plug(Plug.Parsers,
+  plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
     json_decoder: Jason
-  )
 
-  plug(Absinthe.Plug, schema: Absinthe.SocketTest.Schema)
+  plug Absinthe.Plug, schema: Absinthe.SocketTest.Schema
 
   def http_port do
     __MODULE__.config(:http)[:port]
