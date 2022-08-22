@@ -144,9 +144,10 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
         opts
         |> Keyword.put(:port, state.port)
         |> HTTPClient.graphql!()
-        |> Kernel.then(&get_in(&1, ["data", "repoComment", "id"]))
 
-      {:reply, response, state}
+      comment_id = get_in(response, ["data", "repoComment", "id"])
+
+      {:reply, comment_id, state}
     end
   end
 
