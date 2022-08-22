@@ -1,4 +1,4 @@
-Code.require_file("../support/http_client.exs", __DIR__)
+Code.require_file("../../../support/http_client.exs", __DIR__)
 
 defmodule Absinthe.Socket.Integration.EndpointTest do
   # These tests aren't directly related to the Absinthe.Socket functionality–

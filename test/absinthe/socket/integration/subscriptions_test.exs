@@ -1,4 +1,4 @@
-Code.require_file("../support/http_client.exs", __DIR__)
+Code.require_file("../../../support/http_client.exs", __DIR__)
 
 defmodule Absinthe.Socket.Integration.SubscriptionsTest do
   use ExUnit.Case, async: true
