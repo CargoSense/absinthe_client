@@ -16,6 +16,10 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
       GenServer.call(pid, :trigger_disconnect)
     end
 
+    def trigger_clear_subscriptions(pid) do
+      GenServer.call(pid, :trigger_clear_subscriptions)
+    end
+
     ## Private
 
     def init({socket_url, parent}) do
@@ -84,6 +88,11 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
           raise RuntimeError,
                 "expected channel pid #{inspect(socket.channel_pid)} to be killed, but it was not"
       end
+    end
+
+    def handle_call(:trigger_clear_subscriptions, _from, state) do
+      Absinthe.Socket.clear_subscriptions(state.socket, ref = make_ref())
+      {:reply, ref, state}
     end
   end
 
@@ -186,12 +195,56 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
                     %{"id" => ^comment_id, "commentary" => "hi"}}
   end
 
-  @tag :skip
-  test "drops replies from invalid or unknown subscriptions"
-  # - [ ] Trigger a subscription message on the server
-  # - [ ] assert we receive a reply for this subscription
-  # - [ ] Unsubscribe from the subscription topic
-  # - [ ] refute that the subscription data was received by the caller (aka self())
+  test "messages are not sent for cleared subscriptions",
+       %{http_port: port, socket_url: socket_url, test: test} do
+    publisher_pid = start_supervised!({CommentPublisher, {port, self()}})
+    subscriber_pid = start_supervised!({CommentSubscriber, {socket_url, self()}})
+
+    # Subscribes and receives a message on the ABSINTHE repository topic.
+    {:ok, abs_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "ABSINTHE"})
+    assert_receive {:subscription_reply, ^abs_ref, abs_subscription_id}
+
+    abs_comment_id =
+      CommentPublisher.publish!(publisher_pid,
+        repository: "ABSINTHE",
+        commentary: abs_commentary = "absinthe:#{test}"
+      )
+
+    assert_receive {:subscription_data, ^abs_ref, ^abs_subscription_id,
+                    %{"id" => ^abs_comment_id, "commentary" => ^abs_commentary}}
+
+    # Unsubscribes from the ABSINTHE repository and subscribes to the PHOENIX repository.
+    clear_subscriptions_ref = CommentSubscriber.trigger_clear_subscriptions(subscriber_pid)
+    assert_receive {:subscription_reply, ^clear_subscriptions_ref, ^abs_subscription_id}
+
+    {:ok, phx_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
+    assert_receive {:subscription_reply, ^phx_ref, phx_subscription_id}
+
+    # We expect to *not* receive any more messages from the
+    # ABSINTHE repository topic, so we publish its comment
+    # first.
+    _abs_comment_id =
+      CommentPublisher.publish!(publisher_pid,
+        repository: "ABSINTHE",
+        commentary: _abs_commentary = "absinthe:#{test}"
+      )
+
+    # Then, we publish a new comment to the PHOENIX
+    # repository and await its reply.
+    phx_comment_id =
+      CommentPublisher.publish!(publisher_pid,
+        repository: "PHOENIX",
+        commentary: phx_commentary = "phx:#{test}"
+      )
+
+    assert_receive {:subscription_data, ^phx_ref, ^phx_subscription_id,
+                    %{"id" => ^phx_comment_id, "commentary" => ^phx_commentary}}
+
+    # After we have received the PHOENIX message above, we
+    # ensure that we did not receive any more messages on the
+    # ABSINTHE repository topic.
+    refute_received {:subscription_data, ^abs_ref, _, _}
+  end
 
   test "rejoining active subscription on reconnect",
        %{http_port: port, socket_url: socket_url, test: test} do
