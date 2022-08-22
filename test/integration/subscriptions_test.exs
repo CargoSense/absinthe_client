@@ -168,17 +168,6 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
     assert subscription_id
   end
 
-  @tag :skip
-  test "pushes a invalid query to the server and receives an error reply"
-  # - [ ] Push an invalid subscription to the server
-  # - [ ] assert we receive a reply with an error
-  # - [ ] Push a mutation to the server
-  # - [ ] assert we received a reply with an error (invalid query?)
-  # - [ ] Push a query to the server
-  # - [ ] assert we received a reply with an error
-  # - [ ] Push multiple root operations without an operationName
-  # - [ ] assert we received a reply with an error
-
   test "forwards a subscription message to the subscribed caller",
        %{http_port: port, socket_url: socket_url} do
     subscriber_pid = start_supervised!({CommentSubscriber, {socket_url, self()}})

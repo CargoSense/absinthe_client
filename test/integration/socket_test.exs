@@ -30,4 +30,56 @@ defmodule Absinthe.Socket.Integration.SocketTest do
       result: {:ok, %{"data" => %{"creator" => %{"name" => "Ben Wilson"}}}}
     }
   end
+
+  test "push/3 replies with errors for invalid or unknown operations", %{socket_url: uri} do
+    client = start_supervised!({Absinthe.Socket, uri: uri})
+
+    :ok = Absinthe.Socket.push(client, "query { doesNotExist { id } }", ref: ref = make_ref())
+
+    assert_receive %Absinthe.Socket.Reply{
+      ref: ^ref,
+      result:
+        {:error,
+         %{
+           "errors" => [
+             %{
+               "locations" => [%{"column" => 9, "line" => 1}],
+               "message" => "Cannot query field \"doesNotExist\" on type \"RootQueryType\"."
+             }
+           ]
+         }}
+    }
+
+    :ok =
+      Absinthe.Socket.push(
+        client,
+        """
+        query Creator($repository: Repository!) {
+          creator(repository: $repository) {
+            name
+          }
+        }
+        """,
+        ref: ref = make_ref()
+      )
+
+    assert_receive %Absinthe.Socket.Reply{
+      ref: ^ref,
+      result:
+        {:error,
+         %{
+           "errors" => [
+             %{
+               "locations" => [%{"column" => 11, "line" => 2}],
+               "message" =>
+                 "In argument \"repository\": Expected type \"Repository!\", found null."
+             },
+             %{
+               "locations" => [%{"column" => 15, "line" => 1}],
+               "message" => "Variable \"repository\": Expected non-null, found null."
+             }
+           ]
+         }}
+    }
+  end
 end
