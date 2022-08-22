@@ -221,5 +221,5 @@ Supervisor.start_link(
   strategy: :one_for_one
 )
 
-ExUnit.configure(assert_receive_timeout: 300, refute_receive_timeout: 350)
+ExUnit.configure(assert_receive_timeout: 350, refute_receive_timeout: 400)
 ExUnit.start(exclude: :integration)
