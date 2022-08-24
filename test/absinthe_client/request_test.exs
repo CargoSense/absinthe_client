@@ -19,6 +19,12 @@ defmodule AbsintheClient.RequestTest do
     end
   end
 
+  test "GET requests raise ArgumentError" do
+    assert_raise ArgumentError, "only :post requests are currently supported, got: :get", fn ->
+      AbsintheClient.new() |> Req.get!(query: "query GetItem{ getItem{ id } }")
+    end
+  end
+
   test "POST requests send JSON-encoded body" do
     resp =
       [plug: EchoJSON]

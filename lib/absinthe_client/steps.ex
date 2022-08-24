@@ -18,6 +18,11 @@ defmodule AbsintheClient.Steps do
             %{query: query}
           end
 
+        unless request.method == :post do
+          raise ArgumentError,
+                "only :post requests are currently supported, got: #{inspect(request.method)}"
+        end
+
         # todo: support :get request formatting
         request
         |> Req.Request.merge_options(json: operation)
