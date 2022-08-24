@@ -206,9 +206,8 @@ defmodule Absinthe.SocketTest.Endpoint do
 
   plug Absinthe.Plug, schema: Absinthe.SocketTest.Schema
 
-  def http_port do
-    __MODULE__.config(:http)[:port]
-  end
+  def http_port, do: __MODULE__.config(:http)[:port]
+  def graphql_url, do: __MODULE__.url() <> "/graphql"
 end
 
 Supervisor.start_link(
