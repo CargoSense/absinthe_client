@@ -21,33 +21,46 @@ defmodule AbsintheClient.Request do
     request
     |> Req.Request.register_options([:query, :variables])
     |> Req.Request.merge_options(options)
-    |> Req.Request.append_request_steps(absinthe_client: &__MODULE__.request/1)
-    |> Req.Request.append_response_steps(absinthe_client: &__MODULE__.response/1)
+    |> Req.Request.append_request_steps(absinthe_client: &AbsintheClient.Steps.request/1)
+    |> Req.Request.append_response_steps(absinthe_client: &AbsintheClient.Steps.response/1)
   end
 
   @doc false
-  def request(%Req.Request{} = request) do
-    case request.options[:query] do
-      nil ->
-        {request, %ArgumentError{message: "the :query option is required for GraphQL operations"}}
+  defdelegate merge_options(request, options), to: Req.Request
 
-      query ->
-        operation =
-          if variables = request.options[:variables] do
-            %{query: query, variables: variables}
-          else
-            %{query: query}
-          end
+  @doc """
+  Runs a request pipeline.
 
-        # todo: support :get request formatting
-        %Req.Request{request | method: :post}
-        |> Req.Request.merge_options(json: operation)
-        |> Req.Steps.encode_body()
+  Returns {:ok, response} or {:error, exception}.
+  """
+  def run(request) do
+    case Req.request(request) do
+      {:ok, %Req.Response{} = response} ->
+        run_response(request, response)
+
+      {:error, %{__exception__: true} = exception} ->
+        run_error(request, exception)
     end
   end
 
-  @doc false
-  def response({%Req.Request{} = request, %Req.Response{} = response}) do
-    {request, response}
+  defp run_response(_request, resp) do
+    result(%AbsintheClient.Response{
+      status: resp.status,
+      headers: resp.headers,
+      data: resp.body["data"],
+      errors: resp.body["errors"]
+    })
+  end
+
+  defp run_error(_request, exception) do
+    result(exception)
+  end
+
+  defp result(%AbsintheClient.Response{} = response) do
+    {:ok, response}
+  end
+
+  defp result(%{__exception__: true} = exception) do
+    {:error, exception}
   end
 end

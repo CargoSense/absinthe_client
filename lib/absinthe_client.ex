@@ -54,17 +54,11 @@ defmodule AbsintheClient do
   def request(request_or_options)
 
   def request(%Req.Request{} = request) do
-    case Req.request(request) do
-      {:ok, %Req.Response{} = response} ->
-        run_response(request, response)
-
-      {:error, %{__exception__: true} = exception} ->
-        run_error(request, exception)
-    end
+    request(request, [])
   end
 
   def request(options) do
-    request(AbsintheClient.new(options))
+    request(AbsintheClient.new(options), [])
   end
 
   @doc """
@@ -76,10 +70,9 @@ defmodule AbsintheClient do
   @spec request(AbsintheClient.Request.t(), options :: keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request, options) when is_list(options) do
-    case Req.request(request, options) do
-      {:ok, response} -> run_response(request, response)
-      {:error, exception} -> run_error(request, exception)
-    end
+    request
+    |> AbsintheClient.Request.merge_options(options)
+    |> AbsintheClient.Request.run()
   end
 
   @doc """
@@ -120,26 +113,5 @@ defmodule AbsintheClient do
       {:ok, response} -> response
       {:error, exception} -> raise exception
     end
-  end
-
-  defp run_response(_request, resp) do
-    result(%AbsintheClient.Response{
-      status: resp.status,
-      headers: resp.headers,
-      data: resp.body["data"],
-      errors: resp.body["errors"]
-    })
-  end
-
-  defp run_error(_request, exception) do
-    result(exception)
-  end
-
-  defp result(%AbsintheClient.Response{} = response) do
-    {:ok, response}
-  end
-
-  defp result(%{__exception__: true} = exception) do
-    {:error, exception}
   end
 end
