@@ -1,9 +1,27 @@
-defmodule AbsintheClient.ReqPlugin do
-  # Attaches steps to a Req instance.
-  @moduledoc false
+defmodule AbsintheClient.Request do
+  @moduledoc """
+  Low-level API and HTTP plugin for `Req`.
+
+  AbsintheClient is composed of three main pieces:
+
+    * `AbsintheClient` - the high-level API
+
+    * `AbsintheClient.Request` - the low-level API and HTTP plugin (you're here!)
+
+    * AbsintheClient.Subscription - TODO
+
+  """
 
   @doc """
   Attaches AbsintheClient steps to a given `request`.
+
+  ## Examples
+
+      iex> req = Req.new(url: "http://localhost")
+      iex> req = AbsintheClient.Request.attach(req)
+      iex> Keyword.has_key?(req.request_steps, :absinthe_client)
+      true
+
   """
   @spec attach(request :: Req.Request.t(), options :: keyword) :: Request.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do

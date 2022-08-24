@@ -1,5 +1,7 @@
-defmodule AbsintheClient.ReqPluginTest do
+defmodule AbsintheClient.RequestTest do
   use ExUnit.Case, async: true
+
+  doctest AbsintheClient.Request
 
   defmodule EchoJSON do
     def call(conn, _) do
@@ -14,7 +16,7 @@ defmodule AbsintheClient.ReqPluginTest do
   test "ArgumentError when query is not set" do
     assert_raise ArgumentError, "the :query option is required for GraphQL operations", fn ->
       Req.new()
-      |> AbsintheClient.ReqPlugin.attach()
+      |> AbsintheClient.Request.attach()
       |> Req.post!()
     end
   end
@@ -23,7 +25,7 @@ defmodule AbsintheClient.ReqPluginTest do
     resp =
       [plug: EchoJSON]
       |> Req.new()
-      |> AbsintheClient.ReqPlugin.attach()
+      |> AbsintheClient.Request.attach()
       |> Req.post!(query: "query GetItem{ getItem{ id } }")
 
     assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
@@ -31,7 +33,7 @@ defmodule AbsintheClient.ReqPluginTest do
     resp =
       [plug: EchoJSON]
       |> Req.new()
-      |> AbsintheClient.ReqPlugin.attach()
+      |> AbsintheClient.Request.attach()
       |> Req.post!(query: "query GetItem{ getItem{ id } }", variables: %{"foo" => "bar"})
 
     assert resp.body == %{

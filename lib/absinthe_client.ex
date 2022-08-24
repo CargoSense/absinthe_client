@@ -1,6 +1,15 @@
 defmodule AbsintheClient do
   @moduledoc """
-  Client-side state management for Elixir with GraphQL.
+  High-level API for Elixir with GraphQL.
+
+  AbsintheClient is composed of three main pieces:
+
+    * `AbsintheClient` - the high-level API (you're here!)
+
+    * `AbsintheClient.Request` - the low-level API and HTTP plugin
+
+    * AbsintheClient.Subscription - TODO
+
   """
 
   @doc ~S"""
@@ -42,7 +51,7 @@ defmodule AbsintheClient do
 
     request_options
     |> Req.new()
-    |> AbsintheClient.ReqPlugin.attach(options)
+    |> AbsintheClient.Request.attach(options)
     |> request()
   end
 
@@ -89,7 +98,7 @@ defmodule AbsintheClient do
   ## Examples
 
       iex> req = Req.new(base_url: Absinthe.SocketTest.Endpoint.url())
-      iex> req = AbsintheClient.ReqPlugin.attach(req)
+      iex> req = AbsintheClient.Request.attach(req)
       iex> AbsintheClient.request!(req, url: "/graphql", query: "query { getItem(id: FOO){ id } }").status
       200
 
