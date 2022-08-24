@@ -35,8 +35,8 @@ defmodule AbsintheClientUnitTest do
            ).data == %{"creator" => %{"name" => "Chris McCord"}}
   end
 
-  test "request!/2 with a Req.Request", %{url: url} do
-    request = [url: url] |> Req.new() |> AbsintheClient.Request.attach()
+  test "request!/2 with a Request", %{url: url} do
+    request = [url: url] |> AbsintheClient.new()
 
     assert AbsintheClient.request!(request,
              query: "query { creator(repository: FOO) { name } }"

@@ -12,6 +12,22 @@ defmodule AbsintheClient do
 
   """
 
+  @doc """
+  Returns a new request struct with GraphQL steps.
+
+  ## Examples
+
+      iex> client = AbsintheClient.new()
+      iex> client.method
+      :post
+
+  """
+  @spec new(options :: keyword) :: AbsintheClient.Request.t()
+  def new(options \\ []) do
+    {absinthe_options, req_options} = Keyword.split(options, [:query, :variables])
+    AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
+  end
+
   @doc ~S"""
   Makes a GraphQL query and returns a response or raises an error.
 
@@ -22,6 +38,7 @@ defmodule AbsintheClient do
       200
 
   """
+  @spec query!(String.t() | AbsintheClient.Request.t()) :: AbsintheClient.Response.t()
   def query!(url_or_request, options \\ [])
 
   def query!(%Req.Request{} = request, options) do
@@ -32,7 +49,7 @@ defmodule AbsintheClient do
     request!([url: URI.parse(url)] ++ options)
   end
 
-  @spec request(Req.Request.t() | keyword()) ::
+  @spec request(AbsintheClient.Request.t() | keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request_or_options)
 
@@ -47,12 +64,7 @@ defmodule AbsintheClient do
   end
 
   def request(options) do
-    {request_options, options} = Keyword.split(options, [:method, :url, :headers, :body])
-
-    request_options
-    |> Req.new()
-    |> AbsintheClient.Request.attach(options)
-    |> request()
+    request(AbsintheClient.new(options))
   end
 
   @doc """
@@ -61,7 +73,7 @@ defmodule AbsintheClient do
   See `request/1` for more information.
 
   """
-  @spec request(Req.Request.t(), options :: keyword()) ::
+  @spec request(AbsintheClient.Request.t(), options :: keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request, options) when is_list(options) do
     case Req.request(request, options) do
@@ -82,7 +94,7 @@ defmodule AbsintheClient do
       200
 
   """
-  @spec request!(Req.Request.t() | keyword()) :: AbsintheClient.Response.t()
+  @spec request!(AbsintheClient.Request.t() | keyword()) :: AbsintheClient.Response.t()
   def request!(request_or_options) do
     case request(request_or_options) do
       {:ok, response} -> response
@@ -97,13 +109,12 @@ defmodule AbsintheClient do
 
   ## Examples
 
-      iex> req = Req.new(base_url: Absinthe.SocketTest.Endpoint.url())
-      iex> req = AbsintheClient.Request.attach(req)
-      iex> AbsintheClient.request!(req, url: "/graphql", query: "query { getItem(id: FOO){ id } }").status
+      iex> client = AbsintheClient.new(base_url: Absinthe.SocketTest.Endpoint.url())
+      iex> AbsintheClient.request!(client, url: "/graphql", query: "query { getItem(id: FOO){ id } }").status
       200
 
   """
-  @spec request!(Req.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()
+  @spec request!(AbsintheClient.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()
   def request!(request, options) do
     case request(request, options) do
       {:ok, response} -> response

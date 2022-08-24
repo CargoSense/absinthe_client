@@ -12,19 +12,12 @@ defmodule AbsintheClient.Request do
 
   """
 
-  @doc """
-  Attaches AbsintheClient steps to a given `request`.
+  @opaque t :: Req.Request.t()
 
-  ## Examples
-
-      iex> req = Req.new(url: "http://localhost")
-      iex> req = AbsintheClient.Request.attach(req)
-      iex> Keyword.has_key?(req.request_steps, :absinthe_client)
-      true
-
-  """
-  @spec attach(request :: Req.Request.t(), options :: keyword) :: Request.Request.t()
-  def attach(%Req.Request{} = request, options \\ []) do
+  # Attaches the AbsintheClient steps to a given `request`.
+  @doc false
+  @spec attach(Req.Request.t(), keyword) :: AbsintheClient.Request.t()
+  def attach(%Req.Request{} = request, options) do
     request
     |> Req.Request.register_options([:query, :variables])
     |> Req.Request.merge_options(options)
