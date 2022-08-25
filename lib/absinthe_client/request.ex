@@ -20,13 +20,51 @@ defmodule AbsintheClient.Request do
   def attach(%Req.Request{} = request, options) do
     request
     |> Req.Request.register_options([:query, :variables])
-    |> Req.Request.merge_options(options)
+    |> AbsintheClient.Request.merge_options(options)
     |> Req.Request.append_request_steps(absinthe_client: &AbsintheClient.Steps.request/1)
     |> Req.Request.append_response_steps(absinthe_client: &AbsintheClient.Steps.response/1)
   end
 
-  @doc false
-  defdelegate merge_options(request, options), to: Req.Request
+  @doc """
+  Merges options with the given `request`.
+
+  If a GraphQL operation exists and the options contain
+  variables then they will be merged with any existing
+  operation variables.
+  """
+  @spec merge_options(AbsintheClient.Request.t(), keyword) :: AbsintheClient.Request.t()
+  def merge_options(request, options) do
+    {absinthe_options, req_options} = Keyword.split(options, [:query, :variables])
+    request = Req.Request.merge_options(request, req_options)
+
+    case Keyword.fetch(absinthe_options, :query) do
+      {:ok, _query} ->
+        operation = AbsintheClient.Operation.new(request, absinthe_options)
+        AbsintheClient.Request.put_operation(request, operation)
+
+      :error ->
+        request
+    end
+  end
+
+  @doc """
+  Returns an [`Operation`](`AbsintheClient.Operation`) for the given `request`.
+
+  Returns `nil` if no operation is set on the request.
+  """
+  @spec get_operation(AbsintheClient.Request.t()) :: nil | AbsintheClient.Operation.t()
+  def get_operation(request) do
+    Req.Request.get_private(request, :absinthe_client_operation)
+  end
+
+  @doc """
+  Puts an [`Operation`](`AbsintheClient.Operation`) struct on the given `request`.
+  """
+  @spec put_operation(AbsintheClient.Request.t(), AbsintheClient.Operation.t()) ::
+          AbsintheClient.Request.t()
+  def put_operation(request, %AbsintheClient.Operation{} = operation) do
+    Req.Request.put_private(request, :absinthe_client_operation, operation)
+  end
 
   @doc """
   Runs a request pipeline.

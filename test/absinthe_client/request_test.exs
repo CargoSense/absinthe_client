@@ -14,7 +14,7 @@ defmodule AbsintheClient.RequestTest do
   end
 
   test "ArgumentError when query is not set" do
-    assert_raise ArgumentError, "the :query option is required for GraphQL operations", fn ->
+    assert_raise ArgumentError, "expected a GraphQL operation on the request, got: nil", fn ->
       AbsintheClient.new() |> Req.post!()
     end
   end
@@ -25,18 +25,27 @@ defmodule AbsintheClient.RequestTest do
     end
   end
 
-  test "POST requests send JSON-encoded body" do
+  test "POST requests send JSON-encoded operations" do
     resp =
       [plug: EchoJSON]
       |> AbsintheClient.new()
-      |> Req.post!(query: "query GetItem{ getItem{ id } }")
+      |> AbsintheClient.Request.put_operation(
+        AbsintheClient.Operation.new(query: "query GetItem{ getItem{ id } }")
+      )
+      |> Req.post!()
 
     assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
 
     resp =
       [plug: EchoJSON]
       |> AbsintheClient.new()
-      |> Req.post!(query: "query GetItem{ getItem{ id } }", variables: %{"foo" => "bar"})
+      |> AbsintheClient.Request.put_operation(
+        AbsintheClient.Operation.new(
+          query: "query GetItem{ getItem{ id } }",
+          variables: %{"foo" => "bar"}
+        )
+      )
+      |> Req.post!()
 
     assert resp.body == %{
              "query" => "query GetItem{ getItem{ id } }",
