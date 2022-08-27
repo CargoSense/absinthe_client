@@ -6,29 +6,6 @@ defmodule AbsintheClient.Operation do
   @type t :: %__MODULE__{}
   defstruct [:type, :name, :query, :variables]
 
-  @doc """
-  Returns a new operation for the given request and options.
-
-  If an operation already exists on the request, then any new
-  variables in the options will be merged with the existing
-  operation variables.
-  """
-  @spec new(AbsintheClient.Request.t() | AbsintheClient.Operation.t(), keyword) ::
-          AbsintheClient.Operation.t()
-  def new(%AbsintheClient.Operation{} = operation, options) do
-    merge_options(operation, options)
-  end
-
-  def new(request, options) do
-    case Req.Request.get_private(request, :absinthe_client_operation) do
-      nil ->
-        AbsintheClient.Operation.new(options)
-
-      %AbsintheClient.Operation{} = operation ->
-        AbsintheClient.Operation.merge_options(operation, options)
-    end
-  end
-
   @spec new(keyword) :: AbsintheClient.Operation.t()
   def new(options) do
     case Access.fetch(options, :query) do

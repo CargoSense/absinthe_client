@@ -21,7 +21,7 @@ defmodule AbsintheClient.Request do
     request
     |> Req.Request.register_options([:query, :variables])
     |> Req.Request.merge_options(options)
-    |> Req.Request.append_request_steps(absinthe_client: &AbsintheClient.Steps.request/1)
+    |> Req.Request.prepend_request_steps(absinthe_client: &AbsintheClient.Steps.request/1)
     |> Req.Request.append_response_steps(absinthe_client: &AbsintheClient.Steps.response/1)
   end
 
@@ -42,24 +42,6 @@ defmodule AbsintheClient.Request do
           AbsintheClient.Request.t()
   def put_operation(request, %AbsintheClient.Operation{} = operation) do
     Req.Request.put_private(request, :absinthe_client_operation, operation)
-  end
-
-  @doc """
-  Encodes the GraphQL operation data for the given `request`.
-
-  Currently only `:post` requests are supported.
-  """
-  @spec encode_operation(AbsintheClient.Request.t()) :: AbsintheClient.Request.t()
-  def encode_operation(%{private: %{absinthe_client_operation: op}} = request) do
-    # todo: remove once we support :get request formatting
-    unless request.method == :post do
-      raise ArgumentError,
-            "only :post requests are currently supported, got: #{inspect(request.method)}"
-    end
-
-    # todo: support :get request formatting
-    %{request | body: Jason.encode_to_iodata!(op)}
-    |> Req.Request.put_new_header("content-type", "application/json")
   end
 
   @doc """
