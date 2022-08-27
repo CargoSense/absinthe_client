@@ -71,7 +71,7 @@ defmodule AbsintheClient do
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request, options) when is_list(options) do
     request
-    |> AbsintheClient.Request.merge_options(options)
+    |> Req.Request.merge_options(options)
     |> AbsintheClient.Request.run()
   end
 

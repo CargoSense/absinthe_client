@@ -14,14 +14,17 @@ defmodule AbsintheClient.RequestTest do
   end
 
   test "ArgumentError when query is not set" do
-    assert_raise ArgumentError, "expected a GraphQL operation on the request, got: nil", fn ->
-      AbsintheClient.new() |> Req.post!()
+    assert_raise ArgumentError, "expected :query to be set, but it was not", fn ->
+      AbsintheClient.new() |> AbsintheClient.request!()
     end
   end
 
   test "GET requests raise ArgumentError" do
+    client = AbsintheClient.new()
+
     assert_raise ArgumentError, "only :post requests are currently supported, got: :get", fn ->
-      AbsintheClient.new() |> Req.get!(query: "query GetItem{ getItem{ id } }")
+      %{client | method: :get}
+      |> AbsintheClient.request!(query: "query GetItem{ getItem{ id } }")
     end
   end
 

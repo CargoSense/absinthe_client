@@ -13,25 +13,19 @@ defmodule AbsintheClient.Operation do
   variables in the options will be merged with the existing
   operation variables.
   """
-  @spec new(AbsintheClient.Request.t(), keyword) :: AbsintheClient.Operation.t()
+  @spec new(AbsintheClient.Request.t() | AbsintheClient.Operation.t(), keyword) ::
+          AbsintheClient.Operation.t()
+  def new(%AbsintheClient.Operation{} = operation, options) do
+    merge_options(operation, options)
+  end
+
   def new(request, options) do
     case Req.Request.get_private(request, :absinthe_client_operation) do
       nil ->
         AbsintheClient.Operation.new(options)
 
       %AbsintheClient.Operation{} = operation ->
-        {operation_options, _} = Keyword.split(options, [:query, :variables])
-
-        Map.merge(operation, Map.new(operation_options), fn
-          :variables, nil, new ->
-            new
-
-          :variables, old, new ->
-            Map.merge(old, new)
-
-          _, _, value ->
-            value
-        end)
+        AbsintheClient.Operation.merge_options(operation, options)
     end
   end
 
@@ -44,6 +38,22 @@ defmodule AbsintheClient.Operation do
       :error ->
         raise ArgumentError, "the :query option is required for GraphQL operations"
     end
+  end
+
+  @doc false
+  @spec merge_options(AbsintheClient.Operation.t(), keyword) :: AbsintheClient.Operation.t()
+  def merge_options(%__MODULE__{} = operation, options) do
+    # todo: validate options
+    Map.merge(operation, Map.new(options), fn
+      :variables, nil, new ->
+        new
+
+      :variables, old, new ->
+        Map.merge(old, new)
+
+      _, _, value ->
+        value
+    end)
   end
 
   defimpl Jason.Encoder do

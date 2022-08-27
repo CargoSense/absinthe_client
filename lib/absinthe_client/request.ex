@@ -20,31 +20,9 @@ defmodule AbsintheClient.Request do
   def attach(%Req.Request{} = request, options) do
     request
     |> Req.Request.register_options([:query, :variables])
-    |> AbsintheClient.Request.merge_options(options)
+    |> Req.Request.merge_options(options)
     |> Req.Request.append_request_steps(absinthe_client: &AbsintheClient.Steps.request/1)
     |> Req.Request.append_response_steps(absinthe_client: &AbsintheClient.Steps.response/1)
-  end
-
-  @doc """
-  Merges options with the given `request`.
-
-  If a GraphQL operation exists and the options contain
-  variables then they will be merged with any existing
-  operation variables.
-  """
-  @spec merge_options(AbsintheClient.Request.t(), keyword) :: AbsintheClient.Request.t()
-  def merge_options(request, options) do
-    {absinthe_options, req_options} = Keyword.split(options, [:query, :variables])
-    request = Req.Request.merge_options(request, req_options)
-
-    case Keyword.fetch(absinthe_options, :query) do
-      {:ok, _query} ->
-        operation = AbsintheClient.Operation.new(request, absinthe_options)
-        AbsintheClient.Request.put_operation(request, operation)
-
-      :error ->
-        request
-    end
   end
 
   @doc """
@@ -64,6 +42,24 @@ defmodule AbsintheClient.Request do
           AbsintheClient.Request.t()
   def put_operation(request, %AbsintheClient.Operation{} = operation) do
     Req.Request.put_private(request, :absinthe_client_operation, operation)
+  end
+
+  @doc """
+  Encodes the GraphQL operation data for the given `request`.
+
+  Currently only `:post` requests are supported.
+  """
+  @spec encode_operation(AbsintheClient.Request.t()) :: AbsintheClient.Request.t()
+  def encode_operation(%{private: %{absinthe_client_operation: op}} = request) do
+    # todo: remove once we support :get request formatting
+    unless request.method == :post do
+      raise ArgumentError,
+            "only :post requests are currently supported, got: #{inspect(request.method)}"
+    end
+
+    # todo: support :get request formatting
+    %{request | body: Jason.encode_to_iodata!(op)}
+    |> Req.Request.put_new_header("content-type", "application/json")
   end
 
   @doc """
