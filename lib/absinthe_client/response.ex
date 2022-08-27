@@ -14,7 +14,10 @@ defmodule AbsintheClient.Response do
 
   * `:errors` - An optional list of GraphQL errors. Note
     that `errors` will be `nil` for successful operations.
+
+  * `:operation` - The [`Operation`](`AbsintheClient.Operation`)
+    from the request.
   """
   @type t :: %__MODULE__{}
-  defstruct [:status, :headers, :data, :errors]
+  defstruct [:status, :headers, :data, :errors, :operation]
 end

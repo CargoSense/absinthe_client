@@ -77,8 +77,9 @@ defmodule AbsintheClient.Request do
     end
   end
 
-  defp run_response(_request, resp) do
+  defp run_response(request, resp) do
     result(%AbsintheClient.Response{
+      operation: AbsintheClient.Request.get_operation(request),
       status: resp.status,
       headers: resp.headers,
       data: resp.body["data"],
