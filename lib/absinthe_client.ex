@@ -30,14 +30,34 @@ defmodule AbsintheClient do
     AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
   end
 
-  @doc ~S"""
+  @doc """
+  Makes a GraphQL mutation and returns a response or raises an error.
+
+  ## Examples
+
+      AbsintheClient.mutate!(url,
+        query: "mutation RepoCommentMutation($input: RepoCommentInput!){ repoComment(input: $input) { id } }",
+        variables: %{"input" => %{"repository" => "ABSINTHE", "commentary" => "GraphQL!"}}
+      )
+
+  """
+  @spec mutate!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
+  def mutate!(url_or_request, options \\ [])
+
+  def mutate!(%Req.Request{} = request, options) do
+    request!(request, [operation_type: :mutation] ++ options)
+  end
+
+  def mutate!(url, options) do
+    request!([operation_type: :mutation, url: URI.parse(url)] ++ options)
+  end
+
+  @doc """
   Makes a GraphQL query and returns a response or raises an error.
 
   ## Examples
 
-      iex> url = Absinthe.SocketTest.Endpoint.graphql_url()
-      iex> AbsintheClient.query!(url, query: "query { getItem(id: FOO){ id } }").status
-      200
+      AbsintheClient.query!(url, query: "query { getItem(id: FOO){ id } }")
 
   """
   @spec query!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
@@ -84,9 +104,7 @@ defmodule AbsintheClient do
 
   ## Examples
 
-      iex> url = Absinthe.SocketTest.Endpoint.graphql_url()
-      iex> AbsintheClient.request!(url: url, query: "query { getItem(id: FOO){ id } }").status
-      200
+      AbsintheClient.request!(url: url, query: "query { getItem(id: FOO){ id } }")
 
   """
   @spec request!(Req.Request.t() | keyword()) :: AbsintheClient.Response.t()
@@ -104,9 +122,11 @@ defmodule AbsintheClient do
 
   ## Examples
 
-      iex> client = AbsintheClient.new(base_url: Absinthe.SocketTest.Endpoint.url())
-      iex> AbsintheClient.request!(client, url: "/graphql", query: "query { getItem(id: FOO){ id } }").status
-      200
+      client = AbsintheClient.new(base_url: "http://localhost:4001")
+      AbsintheClient.request!(client,
+        url: "/graphql",
+        query: "query { getItem(id: FOO){ id } }"
+      )
 
   """
   @spec request!(Req.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()

@@ -16,6 +16,14 @@ defmodule AbsintheClientUnitTest do
   }
   """
 
+  @repo_comment_mutation """
+  mutation RepoCommentMutation($input: RepoCommentInput!){
+    repoComment(input: $input) {
+       id
+    }
+  }
+  """
+
   test "query!/2 with a graphql query string", %{url: url} do
     assert AbsintheClient.query!(url, query: @creator_query_graphql).errors == [
              %{
@@ -38,6 +46,41 @@ defmodule AbsintheClientUnitTest do
     assert response.operation.operation_type == :query
     assert response.operation.query == @creator_query_graphql
     assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
+  end
+
+  test "mutate!/1 with a url", %{url: url, test: test} do
+    response =
+      AbsintheClient.mutate!(
+        url,
+        query: @repo_comment_mutation,
+        variables: %{
+          "input" => %{
+            "repository" => "PHOENIX",
+            "commentary" => Atom.to_string(test)
+          }
+        }
+      )
+
+    assert response.operation.operation_type == :mutation
+    assert response.data["repoComment"]["id"]
+  end
+
+  test "mutate!/1 with a Request", %{test: test, url: url} do
+    request = AbsintheClient.new(url: url)
+
+    response =
+      AbsintheClient.mutate!(request,
+        query: @repo_comment_mutation,
+        variables: %{
+          "input" => %{
+            "repository" => "PHOENIX",
+            "commentary" => Atom.to_string(test)
+          }
+        }
+      )
+
+    assert response.operation.operation_type == :mutation
+    assert response.data["repoComment"]["id"]
   end
 
   test "request!/2 with a Request", %{url: url} do
