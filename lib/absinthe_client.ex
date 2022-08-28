@@ -24,7 +24,9 @@ defmodule AbsintheClient do
   """
   @spec new(options :: keyword) :: Req.Request.t()
   def new(options \\ []) do
-    {absinthe_options, req_options} = Keyword.split(options, [:query, :variables])
+    {absinthe_options, req_options} =
+      Keyword.split(options, [:operation_type, :query, :variables])
+
     AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
   end
 
@@ -42,11 +44,11 @@ defmodule AbsintheClient do
   def query!(url_or_request, options \\ [])
 
   def query!(%Req.Request{} = request, options) do
-    request!(request, options)
+    request!(request, [operation_type: :query] ++ options)
   end
 
   def query!(url, options) do
-    request!([url: URI.parse(url)] ++ options)
+    request!([operation_type: :query, url: URI.parse(url)] ++ options)
   end
 
   @spec request(Req.Request.t() | keyword()) ::

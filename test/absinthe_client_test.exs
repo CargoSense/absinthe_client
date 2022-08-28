@@ -35,6 +35,7 @@ defmodule AbsintheClientUnitTest do
         variables: %{"repository" => "PHOENIX"}
       )
 
+    assert response.operation.operation_type == :query
     assert response.operation.query == @creator_query_graphql
     assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
   end
@@ -63,6 +64,7 @@ defmodule AbsintheClientUnitTest do
         variables: %{"repository" => "PHOENIX"}
       )
 
+    refute response.operation.operation_type
     assert response.operation.query == @creator_query_graphql
     assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
   end

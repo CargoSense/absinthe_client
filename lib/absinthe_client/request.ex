@@ -17,7 +17,7 @@ defmodule AbsintheClient.Request do
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options) do
     request
-    |> Req.Request.register_options([:query, :variables])
+    |> Req.Request.register_options([:operation_type, :query, :variables])
     |> Req.Request.merge_options(options)
     |> Req.Request.prepend_request_steps(absinthe_client: &AbsintheClient.Steps.request/1)
     |> Req.Request.append_response_steps(absinthe_client: &AbsintheClient.Steps.response/1)

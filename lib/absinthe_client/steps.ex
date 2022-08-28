@@ -25,7 +25,7 @@ defmodule AbsintheClient.Steps do
   end
 
   defp build_operation(request) do
-    options = Map.take(request.options, [:query, :variables])
+    options = Map.take(request.options, [:operation_type, :query, :variables])
 
     cond do
       operation = Req.Request.get_private(request, :absinthe_client_operation) ->
