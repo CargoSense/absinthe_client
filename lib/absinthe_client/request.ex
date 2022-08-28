@@ -24,25 +24,6 @@ defmodule AbsintheClient.Request do
   end
 
   @doc """
-  Returns an [`Operation`](`AbsintheClient.Operation`) for the given `request`.
-
-  Returns `nil` if no operation is set on the request.
-  """
-  @spec get_operation(Req.Request.t()) :: nil | AbsintheClient.Operation.t()
-  def get_operation(request) do
-    Req.Request.get_private(request, :absinthe_client_operation)
-  end
-
-  @doc """
-  Puts an [`Operation`](`AbsintheClient.Operation`) struct on the given `request`.
-  """
-  @spec put_operation(Req.Request.t(), AbsintheClient.Operation.t()) ::
-          Req.Request.t()
-  def put_operation(request, %AbsintheClient.Operation{} = operation) do
-    Req.Request.put_private(request, :absinthe_client_operation, operation)
-  end
-
-  @doc """
   Runs a request pipeline.
 
   Returns {:ok, response} or {:error, exception}.
@@ -57,9 +38,11 @@ defmodule AbsintheClient.Request do
     end
   end
 
-  defp run_response(request, resp) do
+  defp run_response(_request, resp) do
+    operation = Req.Response.get_private(resp, :absinthe_client_operation)
+
     result(%AbsintheClient.Response{
-      operation: AbsintheClient.Request.get_operation(request),
+      operation: operation,
       status: resp.status,
       headers: resp.headers,
       data: resp.body["data"],

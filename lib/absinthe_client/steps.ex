@@ -16,7 +16,7 @@ defmodule AbsintheClient.Steps do
       %AbsintheClient.Operation{} = operation ->
         # todo: support :get request formatting
         request
-        |> AbsintheClient.Request.put_operation(operation)
+        |> Req.Request.put_private(:absinthe_client_operation, operation)
         |> Req.Request.merge_options(json: operation)
 
       %{__exception__: true} = exception ->
@@ -28,7 +28,7 @@ defmodule AbsintheClient.Steps do
     options = Map.take(request.options, [:query, :variables])
 
     cond do
-      operation = AbsintheClient.Request.get_operation(request) ->
+      operation = Req.Request.get_private(request, :absinthe_client_operation) ->
         AbsintheClient.Operation.merge_options(operation, options)
 
       Map.has_key?(options, :query) ->
@@ -43,6 +43,7 @@ defmodule AbsintheClient.Steps do
   The response step combines the Operation with its result.
   """
   def response({%Req.Request{} = request, %Req.Response{} = response}) do
-    {request, response}
+    operation = Req.Request.get_private(request, :absinthe_client_operation)
+    {request, Req.Response.put_private(response, :absinthe_client_operation, operation)}
   end
 end

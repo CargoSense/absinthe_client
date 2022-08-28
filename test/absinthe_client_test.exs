@@ -29,10 +29,14 @@ defmodule AbsintheClientUnitTest do
              }
            ]
 
-    assert AbsintheClient.query!(url,
-             query: @creator_query_graphql,
-             variables: %{"repository" => "PHOENIX"}
-           ).data == %{"creator" => %{"name" => "Chris McCord"}}
+    response =
+      AbsintheClient.query!(url,
+        query: @creator_query_graphql,
+        variables: %{"repository" => "PHOENIX"}
+      )
+
+    assert response.operation.query == @creator_query_graphql
+    assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
   end
 
   test "request!/2 with a Request", %{url: url} do
@@ -53,9 +57,13 @@ defmodule AbsintheClientUnitTest do
                }
              ]
 
-    assert AbsintheClient.request!(request,
-             query: @creator_query_graphql,
-             variables: %{"repository" => "PHOENIX"}
-           ).data == %{"creator" => %{"name" => "Chris McCord"}}
+    response =
+      AbsintheClient.request!(request,
+        query: @creator_query_graphql,
+        variables: %{"repository" => "PHOENIX"}
+      )
+
+    assert response.operation.query == @creator_query_graphql
+    assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
   end
 end
