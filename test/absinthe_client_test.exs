@@ -24,6 +24,15 @@ defmodule AbsintheClientUnitTest do
   }
   """
 
+  @repo_comment_subscription """
+  subscription RepoCommentSubscription($repository: Repository!){
+    repoCommentSubscribe(repository: $repository){
+      id
+      commentary
+    }
+  }
+  """
+
   test "query!/2 with a graphql query string", %{url: url} do
     assert AbsintheClient.query!(url, query: @creator_query_graphql).errors == [
              %{
@@ -110,5 +119,13 @@ defmodule AbsintheClientUnitTest do
     refute response.operation.operation_type
     assert response.operation.query == @creator_query_graphql
     assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
+  end
+
+  describe "subscribe!/1 (WebSocket)" do
+    @tag :skip
+    test "subscribe!/1 with a url"
+
+    @tag :skip
+    test "subscribe!/1 with a Request"
   end
 end

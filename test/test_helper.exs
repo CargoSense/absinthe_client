@@ -221,4 +221,9 @@ Supervisor.start_link(
 )
 
 ExUnit.configure(assert_receive_timeout: 550, refute_receive_timeout: 600)
-ExUnit.start(exclude: :integration)
+
+unless System.get_env("CI") do
+  ExUnit.configure(exclude: :integration)
+end
+
+ExUnit.start()

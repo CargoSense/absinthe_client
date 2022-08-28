@@ -53,6 +53,38 @@ defmodule AbsintheClient do
   end
 
   @doc """
+  Makes a GraphQL subscription and returns a response or raises an error.
+
+  ## Examples
+
+      AbsintheClient.subscribe!(url,
+        query: "subscription { itemSubscribe(id: FOO){ likes } }"
+      )
+
+  with a Request:
+
+      client = AbsintheClient.new(url: url)
+
+      AbsintheClient.subscribe!(client,
+        query: "subscription ItemSubscription($id: ID!) { itemSubscribe(id: $id){ likes } }",
+        variables: %{"id" => "some-item"}
+      )
+
+  Consult the `Absinthe.Socket` docs for more information about subscriptions.
+
+  """
+  @spec subscribe!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
+  def subscribe!(url_or_request, options \\ [])
+
+  def subscribe!(%Req.Request{} = request, options) do
+    request!(request, [operation_type: :subscription] ++ options)
+  end
+
+  def subscribe!(url, options) do
+    request!([operation_type: :subscription, url: URI.parse(url)] ++ options)
+  end
+
+  @doc """
   Makes a GraphQL query and returns a response or raises an error.
 
   ## Examples
