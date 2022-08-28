@@ -2,10 +2,31 @@ defmodule AbsintheClient.Steps do
   # Req steps for AbsintheClient
   @moduledoc false
 
+  @client_operation_key :absinthe_client_operation
+
   @doc """
-  The request step builds and encodes the GraphQL Operation.
+  Build and persists the GraphQL [`Operation`](`AbsintheClient.Operation`).
+
+  ## Request options
+
+    - `:operation_type` - One of `:query`, `:mutation`, or `:subscription`.
+
+    - `:query` - The GraphQL query string.
+
+    - `:variables` - A map of key-value pairs to be sent with the query.
+
+  ## Examples
+
+      iex> AbsintheClient.query!(query: "query SomeItem{ getItem{ id } }").data
+      %{"getItem" => %{"id" => "abc123"}}
+
+      iex> AbsintheClient.query!(
+      ...> query: "query SomeItem($id: ID!){ getItem(id: $id){ id name } }",
+      ...> variables: %{id => "my-item"}).data
+      %{"getItem" => %{"id" => "my-item", "name" => "My Item"}}
+
   """
-  def request(request) do
+  def put_request_operation(%Req.Request{} = request) do
     # remove once we support :get request formatting
     unless request.method == :post do
       raise ArgumentError,
@@ -14,21 +35,30 @@ defmodule AbsintheClient.Steps do
 
     case build_operation(request) do
       %AbsintheClient.Operation{} = operation ->
+        request = put_operation(request, operation)
+
         # todo: support :get request formatting
-        request
-        |> Req.Request.put_private(:absinthe_client_operation, operation)
-        |> Req.Request.merge_options(json: operation)
+        %{request | body: Jason.encode_to_iodata!(operation)}
+        |> Req.Request.put_new_header("content-type", "application/json")
 
       %{__exception__: true} = exception ->
         {request, exception}
     end
   end
 
+  @doc """
+  Copies the operation from the request to the response.
+  """
+  def put_response_operation({%Req.Request{} = request, %Req.Response{} = response}) do
+    operation = fetch_operation!(request)
+    {request, put_operation(response, operation)}
+  end
+
   defp build_operation(request) do
     options = Map.take(request.options, [:operation_type, :query, :variables])
 
     cond do
-      operation = Req.Request.get_private(request, :absinthe_client_operation) ->
+      operation = get_operation(request) ->
         AbsintheClient.Operation.merge_options(operation, options)
 
       Map.has_key?(options, :query) ->
@@ -39,11 +69,25 @@ defmodule AbsintheClient.Steps do
     end
   end
 
-  @doc """
-  The response step combines the Operation with its result.
-  """
-  def response({%Req.Request{} = request, %Req.Response{} = response}) do
-    operation = Req.Request.get_private(request, :absinthe_client_operation)
-    {request, Req.Response.put_private(response, :absinthe_client_operation, operation)}
+  defp fetch_operation!(%Req.Request{} = request) do
+    case get_operation(request) do
+      %AbsintheClient.Operation{} = operation ->
+        operation
+
+      nil ->
+        raise ArgumentError, "no GraphQL operation found on Req.Request"
+
+      other ->
+        raise ArgumentError, "expected an %AbsintheClient.Operation{}, got: #{inspect(other)}"
+    end
+  end
+
+  defp get_operation(request) do
+    Req.Request.get_private(request, @client_operation_key)
+  end
+
+  defp put_operation(%mod{} = request_or_response, %AbsintheClient.Operation{} = operation)
+       when mod in [Req.Request, Req.Response] do
+    mod.put_private(request_or_response, @client_operation_key, operation)
   end
 end

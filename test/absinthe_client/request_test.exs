@@ -52,6 +52,19 @@ defmodule AbsintheClient.RequestTest do
              "query" => "query GetItem{ getItem{ id } }",
              "variables" => %{"foo" => "bar"}
            }
+
+    resp =
+      [plug: EchoJSON]
+      |> AbsintheClient.new()
+      |> put_operation(
+        AbsintheClient.Operation.new(
+          query: "query GetItem{ getItem{ id } }",
+          variables: %{}
+        )
+      )
+      |> Req.post!()
+
+    assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
   end
 
   test "response contains the operation" do

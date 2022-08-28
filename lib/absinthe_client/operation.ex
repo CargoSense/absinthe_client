@@ -84,12 +84,16 @@ defmodule AbsintheClient.Operation do
   end
 
   defimpl Jason.Encoder do
-    def encode(value, opts) do
-      value
-      |> Map.take([:query, :variables])
-      |> Enum.reject(fn {_, v} -> is_nil(v) end)
-      |> Map.new()
-      |> Jason.Encode.map(opts)
+    def encode(%{query: _, variables: nil} = op, options) do
+      Jason.Encode.map(Map.take(op, [:query]), options)
+    end
+
+    def encode(%{query: _, variables: %{} = vars} = op, options) when map_size(vars) == 0 do
+      Jason.Encode.map(Map.take(op, [:query]), options)
+    end
+
+    def encode(%{query: _, variables: _} = op, options) do
+      Jason.Encode.map(Map.take(op, [:query, :variables]), options)
     end
   end
 end
