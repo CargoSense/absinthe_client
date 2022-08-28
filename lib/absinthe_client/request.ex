@@ -12,11 +12,9 @@ defmodule AbsintheClient.Request do
 
   """
 
-  @opaque t :: Req.Request.t()
-
   # Attaches the AbsintheClient steps to a given `request`.
   @doc false
-  @spec attach(Req.Request.t(), keyword) :: AbsintheClient.Request.t()
+  @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options) do
     request
     |> Req.Request.register_options([:query, :variables])
@@ -30,7 +28,7 @@ defmodule AbsintheClient.Request do
 
   Returns `nil` if no operation is set on the request.
   """
-  @spec get_operation(AbsintheClient.Request.t()) :: nil | AbsintheClient.Operation.t()
+  @spec get_operation(Req.Request.t()) :: nil | AbsintheClient.Operation.t()
   def get_operation(request) do
     Req.Request.get_private(request, :absinthe_client_operation)
   end
@@ -38,8 +36,8 @@ defmodule AbsintheClient.Request do
   @doc """
   Puts an [`Operation`](`AbsintheClient.Operation`) struct on the given `request`.
   """
-  @spec put_operation(AbsintheClient.Request.t(), AbsintheClient.Operation.t()) ::
-          AbsintheClient.Request.t()
+  @spec put_operation(Req.Request.t(), AbsintheClient.Operation.t()) ::
+          Req.Request.t()
   def put_operation(request, %AbsintheClient.Operation{} = operation) do
     Req.Request.put_private(request, :absinthe_client_operation, operation)
   end

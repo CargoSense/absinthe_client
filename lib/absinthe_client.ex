@@ -22,7 +22,7 @@ defmodule AbsintheClient do
       :post
 
   """
-  @spec new(options :: keyword) :: AbsintheClient.Request.t()
+  @spec new(options :: keyword) :: Req.Request.t()
   def new(options \\ []) do
     {absinthe_options, req_options} = Keyword.split(options, [:query, :variables])
     AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
@@ -38,7 +38,7 @@ defmodule AbsintheClient do
       200
 
   """
-  @spec query!(String.t() | AbsintheClient.Request.t()) :: AbsintheClient.Response.t()
+  @spec query!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
   def query!(url_or_request, options \\ [])
 
   def query!(%Req.Request{} = request, options) do
@@ -49,7 +49,7 @@ defmodule AbsintheClient do
     request!([url: URI.parse(url)] ++ options)
   end
 
-  @spec request(AbsintheClient.Request.t() | keyword()) ::
+  @spec request(Req.Request.t() | keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request_or_options)
 
@@ -67,7 +67,7 @@ defmodule AbsintheClient do
   See `request/1` for more information.
 
   """
-  @spec request(AbsintheClient.Request.t(), options :: keyword()) ::
+  @spec request(Req.Request.t(), options :: keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request, options) when is_list(options) do
     request
@@ -87,7 +87,7 @@ defmodule AbsintheClient do
       200
 
   """
-  @spec request!(AbsintheClient.Request.t() | keyword()) :: AbsintheClient.Response.t()
+  @spec request!(Req.Request.t() | keyword()) :: AbsintheClient.Response.t()
   def request!(request_or_options) do
     case request(request_or_options) do
       {:ok, response} -> response
@@ -107,7 +107,7 @@ defmodule AbsintheClient do
       200
 
   """
-  @spec request!(AbsintheClient.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()
+  @spec request!(Req.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()
   def request!(request, options) do
     case request(request, options) do
       {:ok, response} -> response

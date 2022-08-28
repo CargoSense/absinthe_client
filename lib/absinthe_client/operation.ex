@@ -6,7 +6,7 @@ defmodule AbsintheClient.Operation do
   @type t :: %__MODULE__{}
   defstruct [:type, :name, :query, :variables]
 
-  @spec new(keyword) :: AbsintheClient.Operation.t()
+  @spec new(map) :: AbsintheClient.Operation.t()
   def new(options) do
     case Access.fetch(options, :query) do
       {:ok, query} ->
@@ -18,7 +18,8 @@ defmodule AbsintheClient.Operation do
   end
 
   @doc false
-  @spec merge_options(AbsintheClient.Operation.t(), keyword) :: AbsintheClient.Operation.t()
+  @spec merge_options(AbsintheClient.Operation.t(), Enumerable.t()) ::
+          AbsintheClient.Operation.t()
   def merge_options(%__MODULE__{} = operation, options) do
     # todo: validate options
     Map.merge(operation, Map.new(options), fn
