@@ -5,7 +5,7 @@ defmodule AbsintheClientUnitTest do
   doctest AbsintheClient
 
   setup do
-    {:ok, url: Endpoint.graphql_url()}
+    {:ok, url: Endpoint.graphql_url(), subscription_url: Endpoint.subscription_url()}
   end
 
   @creator_query_graphql """
@@ -122,10 +122,32 @@ defmodule AbsintheClientUnitTest do
   end
 
   describe "subscribe!/1 (WebSocket)" do
-    @tag :skip
-    test "subscribe!/1 with a url"
+    test "subscribe!/1 with a url", %{subscription_url: subscription_url} do
+      response =
+        AbsintheClient.subscribe!(
+          subscription_url,
+          query: @repo_comment_subscription,
+          variables: %{"repository" => "PHOENIX"}
+        )
 
-    @tag :skip
-    test "subscribe!/1 with a Request"
+      assert response.operation.operation_type == :subscription
+      refute response.data
+      refute response.errors
+    end
+
+    test "subscribe!/1 with a Request", %{subscription_url: subscription_url} do
+      client = AbsintheClient.new(url: subscription_url)
+
+      response =
+        AbsintheClient.subscribe!(
+          client,
+          query: @repo_comment_subscription,
+          variables: %{"repository" => "PHOENIX"}
+        )
+
+      assert response.operation.operation_type == :subscription
+      refute response.data
+      refute response.errors
+    end
   end
 end

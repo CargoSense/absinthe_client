@@ -20,7 +20,8 @@ defmodule AbsintheClient.Request do
     |> Req.Request.register_options([:operation_type, :query, :variables])
     |> Req.Request.merge_options(options)
     |> Req.Request.prepend_request_steps(
-      put_request_operation: &AbsintheClient.Steps.put_request_operation/1
+      put_request_operation: &AbsintheClient.Steps.put_request_operation/1,
+      run_ws_adapter: &AbsintheClient.Steps.run_ws_adapter/1
     )
     |> Req.Request.append_response_steps(
       put_response_operation: &AbsintheClient.Steps.put_response_operation/1

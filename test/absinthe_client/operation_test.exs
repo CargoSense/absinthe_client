@@ -35,21 +35,28 @@ defmodule AbsintheClient.OperationTest do
   end
 
   test "new/1 returns an Operation with optional type hint" do
-    assert Operation.new(query: "query{}") == %Operation{query: "query{}", variables: nil}
+    assert Operation.new(query: "query{}") == %Operation{
+             owner: self(),
+             query: "query{}",
+             variables: nil
+           }
 
     assert Operation.new(query: "query{}", variables: %{"foo" => "bar"}) == %Operation{
+             owner: self(),
              query: "query{}",
              variables: %{"foo" => "bar"}
            }
 
     assert Operation.new(operation_type: :query, query: "query{}") == %Operation{
              operation_type: :query,
+             owner: self(),
              query: "query{}",
              variables: nil
            }
 
     assert Operation.new(operation_type: :mutation, query: "mutation{}") == %Operation{
              operation_type: :mutation,
+             owner: self(),
              query: "mutation{}",
              variables: nil
            }
@@ -57,6 +64,7 @@ defmodule AbsintheClient.OperationTest do
     assert Operation.new(operation_type: :subscription, query: "subscription{}") ==
              %Operation{
                operation_type: :subscription,
+               owner: self(),
                query: "subscription{}",
                variables: nil
              }

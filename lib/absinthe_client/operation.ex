@@ -4,7 +4,7 @@ defmodule AbsintheClient.Operation do
   """
 
   @type t :: %__MODULE__{}
-  defstruct [:operation_type, :query, :variables]
+  defstruct [:operation_type, :owner, :query, :ref, :variables]
 
   @spec new(Enumerable.t()) :: AbsintheClient.Operation.t()
   def new(options) do
@@ -15,7 +15,7 @@ defmodule AbsintheClient.Operation do
       raise ArgumentError, "the :query option is required for GraphQL operations"
     end
 
-    operation
+    %{operation | owner: self()}
   end
 
   defp raise_invalid_query_error(query) do

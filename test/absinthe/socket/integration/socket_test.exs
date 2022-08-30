@@ -2,6 +2,30 @@ defmodule Absinthe.Socket.Integration.SocketTest do
   use ExUnit.Case, async: true
   alias Absinthe.SocketTest.Endpoint
 
+  defmodule Listener do
+    use GenServer
+
+    def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
+
+    def call(pid, fun) when is_function(fun, 1) do
+      GenServer.call(pid, {:call, fun})
+    end
+
+    def init(socket_url) do
+      {:ok, socket_pid} =
+        DynamicSupervisor.start_child(
+          AbsintheClient.SocketSupervisor,
+          {Absinthe.Socket, parent: self(), uri: socket_url}
+        )
+
+      {:ok, socket_pid}
+    end
+
+    def handle_call({:call, fun}, _, state) when is_function(fun, 1) do
+      fun.(state)
+    end
+  end
+
   setup do
     http_port = Endpoint.http_port()
     socket_url = "ws://localhost:#{http_port}/socket/websocket"
@@ -84,5 +108,20 @@ defmodule Absinthe.Socket.Integration.SocketTest do
            ]
          }}
     }
+  end
+
+  test "monitors parent and exits on down", %{socket_url: socket_url} do
+    listener_pid = start_supervised!({Listener, socket_url})
+
+    socket_pid =
+      Listener.call(listener_pid, fn socket_pid ->
+        {:reply, socket_pid, socket_pid}
+      end)
+
+    socket_monitor = Process.monitor(socket_pid)
+
+    Process.exit(listener_pid, :shutdown)
+
+    assert_receive {:DOWN, ^socket_monitor, :process, ^socket_pid, :shutdown}
   end
 end

@@ -50,7 +50,7 @@ defmodule AbsintheClient.Steps do
   Copies the operation from the request to the response.
   """
   def put_response_operation({%Req.Request{} = request, %Req.Response{} = response}) do
-    operation = fetch_operation!(request)
+    operation = fetch_operation!(request, :put_response_operation)
     {request, put_operation(response, operation)}
   end
 
@@ -69,16 +69,17 @@ defmodule AbsintheClient.Steps do
     end
   end
 
-  defp fetch_operation!(%Req.Request{} = request) do
+  defp fetch_operation!(%Req.Request{} = request, step) do
     case get_operation(request) do
       %AbsintheClient.Operation{} = operation ->
         operation
 
       nil ->
-        raise ArgumentError, "no GraphQL operation found on Req.Request"
+        raise ArgumentError, "no GraphQL operation found on request step #{inspect(step)}"
 
       other ->
-        raise ArgumentError, "expected an %AbsintheClient.Operation{}, got: #{inspect(other)}"
+        raise ArgumentError,
+              "expected an %AbsintheClient.Operation{} on request step #{inspect(step)}, got: #{inspect(other)}"
     end
   end
 
@@ -89,5 +90,70 @@ defmodule AbsintheClient.Steps do
   defp put_operation(%mod{} = request_or_response, %AbsintheClient.Operation{} = operation)
        when mod in [Req.Request, Req.Response] do
     mod.put_private(request_or_response, @client_operation_key, operation)
+  end
+
+  @doc """
+  Overrides the HTTP adapter for subscription requests.
+  """
+  def run_ws_adapter(%Req.Request{} = request) do
+    case fetch_operation!(request, :put_ws_adapter) do
+      %AbsintheClient.Operation{operation_type: :subscription} ->
+        %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
+
+      _ ->
+        request
+    end
+  end
+
+  defp run_absinthe_ws_adapter(%Req.Request{} = request) do
+    operation = fetch_operation!(request, :run_absinthe_ws_adapter)
+    name = custom_socket_name(owner: operation.owner, url: request.url)
+
+    socket_name =
+      case DynamicSupervisor.start_child(
+             AbsintheClient.SocketSupervisor,
+             {Absinthe.Socket, name: name, parent: operation.owner, uri: request.url}
+           ) do
+        {:ok, _} ->
+          name
+
+        {:error, {:already_started, _}} ->
+          name
+      end
+
+    operation_ref = make_ref()
+    operation = %AbsintheClient.Operation{operation | ref: operation_ref}
+    new_request = put_operation(request, operation)
+
+    # - [ ] todo (bonus): add push_sync function to Absinthe.Socket
+    :ok =
+      Absinthe.Socket.push(socket_name, operation.query,
+        variables: operation.variables,
+        ref: operation.ref
+      )
+
+    receive do
+      %Absinthe.Socket.Reply{ref: ^operation_ref, result: result} ->
+        case result do
+          {:error, %{__exception__: true} = exception, _stack} ->
+            {new_request, exception}
+
+          {_, payload} ->
+            {new_request, Req.Response.new(body: payload)}
+        end
+    after
+      5_000 ->
+        {request, %RuntimeError{message: "timeout"}}
+    end
+  end
+
+  defp custom_socket_name(options) do
+    name =
+      options
+      |> :erlang.term_to_binary()
+      |> :erlang.md5()
+      |> Base.url_encode64(padding: false)
+
+    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
   end
 end

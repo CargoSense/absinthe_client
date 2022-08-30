@@ -208,6 +208,11 @@ defmodule Absinthe.SocketTest.Endpoint do
 
   def http_port, do: __MODULE__.config(:http)[:port]
   def graphql_url, do: __MODULE__.url() <> "/graphql"
+
+  def subscription_url do
+    uri = __MODULE__.struct_url()
+    URI.to_string(%{uri | scheme: "ws", path: "/socket/websocket"})
+  end
 end
 
 Supervisor.start_link(

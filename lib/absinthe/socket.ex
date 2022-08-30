@@ -128,15 +128,23 @@ defmodule Absinthe.Socket do
   @spec start_link(opts :: Keyword.t()) :: GenServer.on_start()
   def start_link(opts) do
     # todo: split init args from GenServer options.
-    Slipstream.start_link(__MODULE__, opts)
+    {name, opts} = Keyword.pop(opts, :name)
+    {parent, opts} = Keyword.pop(opts, :parent, self())
+    server_opts = if name, do: [name: name], else: []
+
+    Slipstream.start_link(__MODULE__, {parent, opts}, server_opts)
   end
 
   @impl Slipstream
-  def init(config) do
+  def init({parent, config}) do
+    parent_ref = Process.monitor(parent)
+
     socket =
       config
       |> connect!()
       |> assign(
+        parent: parent,
+        parent_ref: parent_ref,
         pids: %{},
         channel_connected: false,
         active_subscriptions: %{},
@@ -253,6 +261,11 @@ defmodule Absinthe.Socket do
       |> update(:active_subscriptions, &Map.drop(&1, sub_ids))
 
     {:noreply, socket}
+  end
+
+  @impl Slipstream
+  def handle_info({:DOWN, ref, :process, _, _}, %{assigns: %{parent_ref: ref}} = socket) do
+    {:stop, :shutdown, socket}
   end
 
   @impl Slipstream

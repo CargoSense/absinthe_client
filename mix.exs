@@ -17,6 +17,7 @@ defmodule Absinthe.Socket.MixProject do
 
   def application do
     [
+      mod: {AbsintheClient.Application, []},
       extra_applications: [:logger]
     ]
   end
