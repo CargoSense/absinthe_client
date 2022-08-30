@@ -14,7 +14,7 @@ defmodule Absinthe.Socket do
 
   * `:variables` - a map of query variables.
 
-  * `:ref` - a term reference to track replies.
+  * `:ref` - a unique term reference to track replies.
 
   ## Examples
 
