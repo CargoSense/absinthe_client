@@ -25,15 +25,15 @@ defmodule Absinthe.SocketUnitTest do
     assert_push @control_topic, "doc", %{query: ^msg, variables: %{"foo" => "bar"}}
   end
 
-  test "push/3 with ref replies to the caller" do
+  test "push/3 with ref replies to the caller", %{test: test} do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = Absinthe.Socket.push(client, msg, ref: ref = make_ref())
+    assert :ok = Absinthe.Socket.push(client, msg, ref: test)
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :this_is_not_a_real_result})
 
-    assert_receive %Absinthe.Socket.Reply{ref: ^ref, result: {:ok, :this_is_not_a_real_result}}
+    assert_receive %Absinthe.Socket.Reply{ref: ^test, result: {:ok, :this_is_not_a_real_result}}
   end
 
   test "receives messages from an active subscription" do
@@ -46,12 +46,12 @@ defmodule Absinthe.SocketUnitTest do
     assert_receive %Absinthe.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
   end
 
-  test "clear_subscriptions/1 unsubscribes from all active subscriptions" do
+  test "clear_subscriptions/1 unsubscribes from all active subscriptions", %{test: ref} do
     client = start_client!()
     sub_a = subscribe!(client)
     sub_b = subscribe!(client)
 
-    :ok = Absinthe.Socket.clear_subscriptions(client, ref = make_ref())
+    :ok = Absinthe.Socket.clear_subscriptions(client, ref)
 
     assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_b}, sub_b_reply_ref
     assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_a}, sub_a_reply_ref
@@ -63,12 +63,12 @@ defmodule Absinthe.SocketUnitTest do
     assert_receive %Absinthe.Socket.Reply{event: "unsubscribe", ref: ^ref, result: ^result_a}
   end
 
-  test "enqueues on disconnect and re-subscribes on reconnect" do
+  test "enqueues on disconnect and re-subscribes on reconnect", %{test: ref} do
     client = start_client!()
 
     # client: sends subscription to the server
     query = "msg:#{System.unique_integer()}"
-    assert :ok = Absinthe.Socket.push(client, query, ref: ref = make_ref())
+    assert :ok = Absinthe.Socket.push(client, query, ref: ref)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref

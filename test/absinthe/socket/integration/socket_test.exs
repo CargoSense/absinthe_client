@@ -8,7 +8,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     {:ok, http_port: http_port, socket_url: socket_url}
   end
 
-  test "push/3 pushes a doc over the socket and receives a reply", %{socket_url: uri} do
+  test "push/3 pushes a doc over the socket and receives a reply", %{socket_url: uri, test: ref} do
     query = """
     query Creator($repository: Repository!) {
       creator(repository: $repository) {
@@ -22,7 +22,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     :ok =
       Absinthe.Socket.push(client, query,
         variables: %{"repository" => "ABSINTHE"},
-        ref: ref = make_ref()
+        ref: ref
       )
 
     assert_receive %Absinthe.Socket.Reply{
@@ -31,10 +31,13 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     }
   end
 
-  test "push/3 replies with errors for invalid or unknown operations", %{socket_url: uri} do
+  test "push/3 replies with errors for invalid or unknown operations", %{
+    socket_url: uri,
+    test: ref
+  } do
     client = start_supervised!({Absinthe.Socket, uri: uri})
 
-    :ok = Absinthe.Socket.push(client, "query { doesNotExist { id } }", ref: ref = make_ref())
+    :ok = Absinthe.Socket.push(client, "query { doesNotExist { id } }", ref: ref)
 
     assert_receive %Absinthe.Socket.Reply{
       ref: ^ref,
@@ -60,7 +63,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
           }
         }
         """,
-        ref: ref = make_ref()
+        ref: ref
       )
 
     assert_receive %Absinthe.Socket.Reply{

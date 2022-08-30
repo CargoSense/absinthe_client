@@ -15,9 +15,7 @@ defmodule Absinthe.Socket.Push do
     new("doc", %{query: query, variables: variables}, pid, ref)
   end
 
-  def new(event, params, pid, ref)
-      when is_binary(event) and is_map(params) and is_pid(pid) and
-             (is_reference(ref) or is_nil(ref)) do
+  def new(event, params, pid, ref) when is_binary(event) and is_map(params) and is_pid(pid) do
     %__MODULE__{
       event: event,
       params: params,

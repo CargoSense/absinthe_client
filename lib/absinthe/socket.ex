@@ -14,7 +14,7 @@ defmodule Absinthe.Socket do
 
   * `:variables` - a map of query variables.
 
-  * `:ref` - a reference to track replies.
+  * `:ref` - a term reference to track replies.
 
   ## Examples
 
@@ -46,13 +46,13 @@ defmodule Absinthe.Socket do
       Absinthe.Socket.push(
         sock,
         "query GetItem($id: ID!) { item(id: $id) { name } }",
-        ref: ref = make_ref()
+        ref: "get-item-ref"
       )
 
   ...and handle the reply:
 
       receive do
-        %Absinthe.Socket.Reply{ref: ^ref, result: result} ->
+        %Absinthe.Socket.Reply{ref: "get-item-ref", result: result} ->
           # do something with result...
       after
         5_000 ->
@@ -78,12 +78,8 @@ defmodule Absinthe.Socket do
 
     ref =
       case Access.fetch(opts, :ref) do
-        {:ok, ref} when is_reference(ref) ->
+        {:ok, ref} ->
           ref
-
-        {:ok, other} ->
-          raise ArgumentError,
-                "invalid :ref given to push/3, expected a reference, got: #{inspect(other)}"
 
         :error ->
           nil
@@ -111,12 +107,12 @@ defmodule Absinthe.Socket do
 
       Absinthe.Socket.clear_subscriptions(socket)
 
-      Absinthe.Socket.clear_subscriptions(socket, ref = make_ref())
+      Absinthe.Socket.clear_subscriptions(socket, "my-unsubscribe-ref")
 
   """
   @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
-  @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | reference()) :: :ok
-  def clear_subscriptions(socket, ref \\ nil) when is_nil(ref) or is_reference(ref) do
+  @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | term()) :: :ok
+  def clear_subscriptions(socket, ref \\ nil) do
     send(socket, {:clear_subscriptions, self(), ref})
     :ok
   end
@@ -198,8 +194,7 @@ defmodule Absinthe.Socket do
   def handle_reply(push_ref, result, socket) do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
       {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
-        if is_reference(push.ref),
-          do: send(pid, %Reply{event: push.event, ref: push.ref, result: result})
+        if push.ref, do: send(pid, %Reply{event: push.event, ref: push.ref, result: result})
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
 
