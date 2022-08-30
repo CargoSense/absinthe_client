@@ -10,7 +10,8 @@ defmodule Absinthe.Socket.MixProject do
       deps: deps(),
       source_url: "https://github.com/CargoSense/absinthe_socket",
       name: "Absinthe.Socket",
-      docs: docs()
+      docs: docs(),
+      test_coverage: [summary: [threshold: 80]]
     ]
   end
 
@@ -24,7 +25,11 @@ defmodule Absinthe.Socket.MixProject do
     [
       {:castore, ">= 0.0.0"},
       {:slipstream, "~> 1.0"},
-      {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false}
+      # Dev/Test dependencies
+      {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false},
+      {:jason, ">= 0.0.0", only: [:dev, :docs, :test]},
+      {:plug_cowboy, "~> 2.0", only: [:dev, :test]},
+      {:absinthe_phoenix, "~> 2.0.0", only: [:dev, :docs, :test]}
     ]
   end
 
