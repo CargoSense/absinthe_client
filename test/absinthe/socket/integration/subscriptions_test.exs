@@ -23,7 +23,7 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
     ## Private
 
     def init({socket_url, parent}) do
-      {:ok, pid} = Absinthe.Socket.start_link(uri: socket_url)
+      {:ok, pid} = Absinthe.Socket.start_link({self(), uri: socket_url})
 
       state = %{
         parent: parent,

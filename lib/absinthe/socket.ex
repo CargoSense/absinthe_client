@@ -125,11 +125,10 @@ defmodule Absinthe.Socket do
       Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
 
   """
-  @spec start_link(opts :: Keyword.t()) :: GenServer.on_start()
-  def start_link(opts) do
+  @spec start_link({parent :: pid, opts :: Keyword.t()}) :: GenServer.on_start()
+  def start_link({parent, opts}) when is_pid(parent) and is_list(opts) do
     # todo: split init args from GenServer options.
     {name, opts} = Keyword.pop(opts, :name)
-    {parent, opts} = Keyword.pop(opts, :parent, self())
     server_opts = if name, do: [name: name], else: []
 
     Slipstream.start_link(__MODULE__, {parent, opts}, server_opts)

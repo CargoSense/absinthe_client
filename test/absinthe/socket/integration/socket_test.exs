@@ -15,7 +15,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
       {:ok, socket_pid} =
         DynamicSupervisor.start_child(
           AbsintheClient.SocketSupervisor,
-          {Absinthe.Socket, parent: self(), uri: socket_url}
+          {Absinthe.Socket, {self(), uri: socket_url}}
         )
 
       {:ok, socket_pid}
@@ -41,7 +41,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     }
     """
 
-    client = start_supervised!({Absinthe.Socket, uri: uri})
+    client = start_supervised!({Absinthe.Socket, {self(), uri: uri}})
 
     :ok =
       Absinthe.Socket.push(client, query,

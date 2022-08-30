@@ -112,7 +112,7 @@ defmodule AbsintheClient.Steps do
     socket_name =
       case DynamicSupervisor.start_child(
              AbsintheClient.SocketSupervisor,
-             {Absinthe.Socket, name: name, parent: operation.owner, uri: request.url}
+             {Absinthe.Socket, {operation.owner, name: name, uri: request.url}}
            ) do
         {:ok, _} ->
           name
