@@ -107,53 +107,18 @@ defmodule AbsintheClient.Steps do
 
   defp run_absinthe_ws_adapter(%Req.Request{} = request) do
     operation = fetch_operation!(request, :run_absinthe_ws_adapter)
-    name = custom_socket_name(owner: operation.owner, url: request.url)
-
-    socket_name =
-      case DynamicSupervisor.start_child(
-             AbsintheClient.SocketSupervisor,
-             {Absinthe.Socket, {operation.owner, name: name, uri: request.url}}
-           ) do
-        {:ok, _} ->
-          name
-
-        {:error, {:already_started, _}} ->
-          name
-      end
+    socket_name = AbsintheClient.Request.start_socket(operation.owner, request)
 
     operation_ref = make_ref()
     operation = %AbsintheClient.Operation{operation | ref: operation_ref}
     new_request = put_operation(request, operation)
 
-    # - [ ] todo (bonus): add push_sync function to Absinthe.Socket
-    :ok =
-      Absinthe.Socket.push(socket_name, operation.query,
-        variables: operation.variables,
-        ref: operation.ref
-      )
+    case Absinthe.Socket.push_sync(socket_name, operation) do
+      {:error, %{__exception__: true} = exception} ->
+        {new_request, exception}
 
-    receive do
-      %Absinthe.Socket.Reply{ref: ^operation_ref, result: result} ->
-        case result do
-          {:error, %{__exception__: true} = exception, _stack} ->
-            {new_request, exception}
-
-          {_, payload} ->
-            {new_request, Req.Response.new(body: payload)}
-        end
-    after
-      5_000 ->
-        {request, %RuntimeError{message: "timeout"}}
+      {:ok, payload} ->
+        {new_request, Req.Response.new(body: %{"data" => payload})}
     end
-  end
-
-  defp custom_socket_name(options) do
-    name =
-      options
-      |> :erlang.term_to_binary()
-      |> :erlang.md5()
-      |> Base.url_encode64(padding: false)
-
-    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
   end
 end

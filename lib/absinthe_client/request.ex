@@ -66,4 +66,49 @@ defmodule AbsintheClient.Request do
   defp result(%{__exception__: true} = exception) do
     {:error, exception}
   end
+
+  @doc """
+  Starts a socket process for the caller and the given `request`.
+
+  Usually you do not need to invoke this function directly,
+  since it is automatically invoked by the high-level
+  [`subscribe!/1`](`AbsintheClient.subscribe!/1`) function.
+  However in certain cases you may want to start the socket
+  process early.
+
+  ## Examples
+
+      iex> url = Absinthe.SocketTest.Endpoint.subscription_url()
+      iex> client = AbsintheClient.new(url: url)
+      iex> socket_name = AbsintheClient.Request.start_socket(client)
+      iex> is_atom(socket_name)
+      true
+
+  """
+  @spec start_socket(request :: Req.Request.t()) :: atom()
+  @spec start_socket(owner :: pid(), request :: Req.Request.t()) :: atom()
+  def start_socket(owner \\ self(), %Req.Request{} = request) do
+    name = custom_socket_name(owner: owner, url: request.url)
+
+    case DynamicSupervisor.start_child(
+           AbsintheClient.SocketSupervisor,
+           {Absinthe.Socket, {owner, name: name, uri: request.url}}
+         ) do
+      {:ok, _} ->
+        name
+
+      {:error, {:already_started, _}} ->
+        name
+    end
+  end
+
+  defp custom_socket_name(options) do
+    name =
+      options
+      |> :erlang.term_to_binary()
+      |> :erlang.md5()
+      |> Base.url_encode64(padding: false)
+
+    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
+  end
 end

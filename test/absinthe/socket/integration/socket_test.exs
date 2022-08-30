@@ -59,7 +59,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     socket_url: uri,
     test: ref
   } do
-    client = start_supervised!({Absinthe.Socket, uri: uri})
+    client = start_supervised!({Absinthe.Socket, {self(), uri: uri}})
 
     :ok = Absinthe.Socket.push(client, "query { doesNotExist { id } }", ref: ref)
 

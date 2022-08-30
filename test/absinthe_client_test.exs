@@ -131,7 +131,8 @@ defmodule AbsintheClientUnitTest do
         )
 
       assert response.operation.operation_type == :subscription
-      refute response.data
+      assert %{"subscriptionId" => subscription_id} = response.data
+      assert subscription_id =~ "__absinthe__:doc:"
       refute response.errors
     end
 
@@ -146,7 +147,8 @@ defmodule AbsintheClientUnitTest do
         )
 
       assert response.operation.operation_type == :subscription
-      refute response.data
+      assert %{"subscriptionId" => subscription_id} = response.data
+      assert subscription_id =~ "__absinthe__:doc:"
       refute response.errors
     end
   end

@@ -1,7 +1,5 @@
-Code.require_file("../../../support/http_client.exs", __DIR__)
-
-defmodule Absinthe.Socket.Integration.SubscriptionsTest do
-  use ExUnit.Case, async: true
+defmodule AbsintheClient.Integration.SubscriptionsTest do
+  use ExUnit.Case
 
   defmodule CommentSubscriber do
     use GenServer
@@ -22,16 +20,13 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
 
     ## Private
 
-    def init({socket_url, parent}) do
-      {:ok, pid} = Absinthe.Socket.start_link({self(), uri: socket_url})
+    def init({client, parent}) do
+      socket_name = AbsintheClient.Request.start_socket(client)
 
-      state = %{
-        parent: parent,
-        socket: pid,
-        subscription_id_to_ref: %{}
+      {
+        :ok,
+        %{parent: parent, client: client, socket: socket_name, subscription_id_to_ref: %{}}
       }
-
-      {:ok, state}
     end
 
     def handle_info(%Absinthe.Socket.Reply{ref: ref, result: result}, state) do
@@ -58,21 +53,26 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
     end
 
     def handle_call({:subscribe, {:repo, name}}, _, state) do
-      Absinthe.Socket.push(
-        state.socket,
-        """
-        subscription RepoCommentSubscription($repository: Repository!){
-          repoCommentSubscribe(repository: $repository){
-            id
-            commentary
+      response =
+        AbsintheClient.subscribe!(state.client,
+          query: """
+          subscription RepoCommentSubscription($repository: Repository!){
+            repoCommentSubscribe(repository: $repository){
+              id
+              commentary
+            }
           }
-        }
-        """,
-        ref: ref = make_ref(),
-        variables: %{"repository" => name}
-      )
+          """,
+          variables: %{"repository" => name}
+        )
 
-      {:reply, {:ok, ref}, state}
+      %{data: %{"subscriptionId" => subscription_id}, operation: operation} = response
+
+      send(state.parent, {:subscription_reply, operation.ref, subscription_id})
+
+      new_subs = Map.put(state.subscription_id_to_ref, subscription_id, operation.ref)
+
+      {:reply, {:ok, operation.ref}, %{state | subscription_id_to_ref: new_subs}}
     end
 
     def handle_call(:trigger_disconnect, _from, state) do
@@ -101,7 +101,7 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
 
     def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
 
-    def init({port, parent}), do: {:ok, %{port: port, parent: parent}}
+    def init({client, parent}), do: {:ok, %{client: client, parent: parent}}
 
     def publish!(pid, opts) do
       opts = Keyword.new(opts)
@@ -140,27 +140,24 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
     end
 
     def handle_call({:publish!, opts}, _, state) do
-      response =
-        opts
-        |> Keyword.put(:port, state.port)
-        |> HTTPClient.graphql!()
-
-      comment_id = get_in(response, ["data", "repoComment", "id"])
+      response = AbsintheClient.mutate!(state.client, opts)
+      comment_id = get_in(response.data, ["repoComment", "id"])
 
       {:reply, comment_id, state}
     end
   end
 
   setup do
-    http_port = Absinthe.SocketTest.Endpoint.http_port()
-    socket_url = "ws://localhost:#{http_port}/socket/websocket"
+    http_url = Absinthe.SocketTest.Endpoint.graphql_url()
+    socket_url = Absinthe.SocketTest.Endpoint.subscription_url()
 
-    {:ok, %{http_port: http_port, socket_url: socket_url}}
+    {:ok, %{http_url: http_url, socket_url: socket_url}}
   end
 
   test "pushes a subscription to the server and receives a success reply",
        %{socket_url: socket_url} do
-    pid = start_supervised!({CommentSubscriber, {socket_url, self()}})
+    client = AbsintheClient.new(url: socket_url)
+    pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     {:ok, ref} = CommentSubscriber.subscribe(pid, {:repo, "ELIXIR"})
 
@@ -170,25 +167,26 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
   end
 
   test "forwards a subscription message to the subscribed caller",
-       %{http_port: port, socket_url: socket_url} do
-    subscriber_pid = start_supervised!({CommentSubscriber, {socket_url, self()}})
+       %{http_url: http_url, socket_url: socket_url} do
+    ws_client = AbsintheClient.new(url: socket_url)
+    subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
 
     repo = "ABSINTHE"
     {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
 
-    assert_receive {:subscription_reply, ^ref, subscription_id}
-
-    publisher_pid = start_supervised!({CommentPublisher, {port, self()}})
+    http_client = AbsintheClient.new(url: http_url)
+    publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
     comment_id = CommentPublisher.publish!(publisher_pid, repository: repo, commentary: "hi")
 
-    assert_receive {:subscription_data, ^ref, ^subscription_id,
-                    %{"id" => ^comment_id, "commentary" => "hi"}}
+    assert_receive {:subscription_data, ^ref, _, %{"id" => ^comment_id, "commentary" => "hi"}}
   end
 
   test "messages are not sent for cleared subscriptions",
-       %{http_port: port, socket_url: socket_url, test: test} do
-    publisher_pid = start_supervised!({CommentPublisher, {port, self()}})
-    subscriber_pid = start_supervised!({CommentSubscriber, {socket_url, self()}})
+       %{http_url: http_url, socket_url: socket_url, test: test} do
+    http_client = AbsintheClient.new(url: http_url)
+    publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
+    ws_client = AbsintheClient.new(url: socket_url)
+    subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
 
     # Subscribes and receives a message on the ABSINTHE repository topic.
     {:ok, abs_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "ABSINTHE"})
@@ -237,9 +235,12 @@ defmodule Absinthe.Socket.Integration.SubscriptionsTest do
   end
 
   test "rejoining active subscription on reconnect",
-       %{http_port: port, socket_url: socket_url, test: test} do
-    publisher_pid = start_supervised!({CommentPublisher, {port, self()}})
-    subscriber_pid = start_supervised!({CommentSubscriber, {socket_url, self()}})
+       %{http_url: http_url, socket_url: socket_url, test: test} do
+    http_client = AbsintheClient.new(url: http_url)
+    publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
+
+    ws_client = AbsintheClient.new(url: socket_url)
+    subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
 
     repo = "PHOENIX"
     text = "#{test}"
