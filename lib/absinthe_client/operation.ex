@@ -3,9 +3,21 @@ defmodule AbsintheClient.Operation do
   Structure representing a GraphQL operation.
   """
 
-  @type t :: %__MODULE__{}
+  @type variables :: %{
+          required(atom() | String.t()) => String.t() | integer() | variables()
+        }
+
+  @type t :: %__MODULE__{
+          operation_type: :query | :mutation | :subscription,
+          owner: pid(),
+          query: String.t(),
+          ref: nil | term(),
+          variables: nil | variables()
+        }
+
   defstruct [:operation_type, :owner, :query, :ref, :variables]
 
+  @doc false
   @spec new(Enumerable.t()) :: AbsintheClient.Operation.t()
   def new(options) do
     validate_options(operation = %__MODULE__{}, options)

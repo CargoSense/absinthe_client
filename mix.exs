@@ -39,7 +39,20 @@ defmodule Absinthe.Socket.MixProject do
       deps: [],
       language: "en",
       formatters: ["html"],
-      main: Absinthe.Socket
+      main: AbsintheClient,
+      groups_for_modules: [
+        # Ungrouped modules
+        # AbsintheClient
+        # AbsintheClient.Request
+        # Absinthe.Socket
+
+        Structures: [
+          AbsintheClient.Operation,
+          AbsintheClient.Response,
+          Absinthe.Socket.Reply,
+          Absinthe.Subscription.Data
+        ]
+      ]
     ]
   end
 end
