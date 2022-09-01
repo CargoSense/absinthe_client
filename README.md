@@ -1,6 +1,6 @@
-# Absinthe.Socket
+# AbsintheClient
 
-An Elixir WebSocket client for Absinthe subscriptions.
+An Elixir GraphQL client designed for Absinthe.
 
 ## Installation
 

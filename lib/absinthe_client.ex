@@ -1,14 +1,45 @@
 defmodule AbsintheClient do
   @moduledoc """
-  High-level API for Elixir with GraphQL.
+  The high-level API.
 
   AbsintheClient is composed of three main pieces:
 
     * `AbsintheClient` - the high-level API (you're here!)
 
-    * `AbsintheClient.Request` - the low-level API and HTTP plugin
+    * `AbsintheClient.Request` - the `Req` plugin with subscription adapter
 
-    * AbsintheClient.Subscription - TODO
+    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
+
+  The high-level API is how most users of AbsintheClient will
+  make GraphQL requests most of the time.
+
+  ## Examples
+
+  Performing a `query` operation with `AbsintheClient.query!/1`:
+
+      iex> res = AbsintheClient.query!("https://rickandmortyapi.com/graphql",
+      ...>   query: "query { character(id:1){ name } }"
+      ...> )
+      iex> get_in(res.data, ~w(character name))
+      "Rick Sanchez"
+
+  Same, but by explicitly building a `Req.Request` struct first:
+
+      iex> req = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
+      iex> res = AbsintheClient.query!(req,
+      ...>   query: "query { character(id:1){ name } }"
+      ...> )
+      iex> get_in(res.data, ~w(character name))
+      "Rick Sanchez"
+
+  Making a query with variables:
+
+      iex> res = AbsintheClient.query!("https://rickandmortyapi.com/graphql",
+      ...>   query: "query($id: ID!) { character(id:$id){ name } }",
+      ...>   variables: %{id: 2}
+      ...> )
+      iex> get_in(res.data, ~w(character name))
+      "Morty Smith"
 
   """
 

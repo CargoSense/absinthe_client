@@ -1,6 +1,56 @@
 defmodule AbsintheClient.WebSocket do
-  @moduledoc """
-  WebSocket client for [Absinthe](https://hexdocs.pm/absinthe).
+  @moduledoc ~S"""
+  The `Absinthe` WebSocket subscription manager.
+
+  AbsintheClient is composed of three main pieces:
+
+    * `AbsintheClient` - the high-level API
+
+    * `AbsintheClient.Request` - the `Req` plugin with subscription adapter
+
+    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager (you're here!)
+
+  The WebSocket does the following:
+
+    * Manages subscriptions received from the
+      [`subscribe!/1`](`AbsintheClient.subscribe!/1`)
+      function, including automatically replaying
+      subscription requests in the event of a connection
+      loss.
+
+    * Forwarding replies and subscription messages to the
+      calling process.
+
+  Under the hood, WebSocket connections are `Slipstream`
+  socket processes which are usually managed by an internal
+  AbsintheClient supervisor.
+
+  ## Examples
+
+  > #### Absinthe subscriptions only!  {: .neutral}
+  >
+  > These examples assume you are communicating with a server
+  > configured to accept
+  > [Absinthe subscriptions](https://hexdocs.pm/absinthe/subscriptions.html).
+  >
+  > Support for other GraphQL WebSocket protocols is not planned.
+
+  First you make a subscription request to the server:
+
+      AbsintheClient.subscribe!("wss://example.com/",
+        query: "subscription { subscribeToAllThings { id name } }"
+      )
+
+  ...then you await replies. For instance, on a `GenServer`:
+
+      def handle_info(%AbsintheClient.Subscription.Data{result: result}, state) do
+        if name = get_in(result, ~w(data subscribeToAllThings name)) do
+          IO.puts("Received new thing named #{name}")
+        else
+          raise "Received result with errors, got: #{inspect(result["errors"])}"
+        end
+      end
+
   """
   use Slipstream, restart: :temporary
   alias AbsintheClient.WebSocket.{Push, Reply}

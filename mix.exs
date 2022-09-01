@@ -1,16 +1,26 @@
 defmodule Absinthe.Socket.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @source_url "https://github.com/CargoSense/absinthe_socket"
+
   def project do
     [
       app: :absinthe_client,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.10",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      source_url: "https://github.com/CargoSense/absinthe_socket",
-      name: "Absinthe.Socket",
+      package: package(),
       docs: docs(),
+      aliases: [
+        "test.all": ["test --include integration"]
+      ],
+      preferred_cli_env: [
+        "test.all": :test,
+        docs: :docs,
+        "hex.publish": :docs
+      ],
       test_coverage: [summary: [threshold: 80]]
     ]
   end
@@ -19,6 +29,16 @@ defmodule Absinthe.Socket.MixProject do
     [
       mod: {AbsintheClient.Application, []},
       extra_applications: [:logger]
+    ]
+  end
+
+  defp package do
+    [
+      description: "AbsintheClient is an Elixir GraphQL client designed for Absinthe.",
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => @source_url
+      }
     ]
   end
 
@@ -36,6 +56,8 @@ defmodule Absinthe.Socket.MixProject do
 
   defp docs do
     [
+      source_url: @source_url,
+      source_ref: "v#{@version}",
       deps: [],
       language: "en",
       formatters: ["html"],

@@ -1,19 +1,53 @@
 defmodule AbsintheClient.Request do
   @moduledoc """
-  Low-level API and HTTP plugin for `Req`.
+  The `Req` plugin with subscription adapter.
 
   AbsintheClient is composed of three main pieces:
 
     * `AbsintheClient` - the high-level API
 
-    * `AbsintheClient.Request` - the low-level API and HTTP plugin (you're here!)
+    * `AbsintheClient.Request` - the `Req` plugin with subscription adapter (you're here!)
 
-    * AbsintheClient.Subscription - TODO
+    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
+
+  The plugin comprises the individual steps required
+  to perform a GraphQL operation via a [`Request`](`Req.Request`).
+  The plugin supports subscriptions by overriding the request
+  adapter for subscription operations with a socket-based
+  implementation with built-in state management.
+
+  ## The plugin
+
+  Most queries can be performed like this:
+
+      AbsintheClient.query!(url, query: "query { allLinks { url } }").data
+      #=> %{ "allLinks" => %{ "url" => "http://graphql.org/" } }
+
+  If you want to compose AbsintheClient into an existing
+  request pipeline, you can add the plugin:
+
+      query = "query { allLinks { url } }"
+
+      req =
+        Req.new(method: :post, url: url)
+        |> AbsintheClient.Request.attach(query: query)
+
+      AbsintheClient.Request.run!(req).data
+      #=> %{ "allLinks" => %{ "url" => "http://graphql.org/" } }
 
   """
 
-  # Attaches the AbsintheClient steps to a given `request`.
-  @doc false
+  @doc """
+  Attaches the `AbsintheClient` steps to a given `request`.
+
+  ## Examples
+
+      iex> req = Req.new(method: :post, url: "ws://localhost")
+      iex> req = AbsintheClient.Request.attach(req, operation_type: :query)
+      iex> req.options.operation_type
+      :query
+
+  """
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options) do
     request
