@@ -62,14 +62,38 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Makes a GraphQL mutation and returns a response or raises an error.
+  Runs a `mutation` operation.
+
+  Refer to `request/1` for a list of supported operations.
 
   ## Examples
 
-      AbsintheClient.mutate!(url,
-        query: "mutation RepoCommentMutation($input: RepoCommentInput!){ repoComment(input: $input) { id } }",
-        variables: %{"input" => %{"repository" => "ABSINTHE", "commentary" => "GraphQL!"}}
-      )
+  With URL:
+
+      iex> AbsintheClient.mutate!("https://graphqlzero.almansi.me/api",
+      ...>  query: "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }",
+      ...>  variables: %{
+      ...>    "input" => %{
+      ...>      "title" => "My New Post",
+      ...>      "body" => "This is the post body."
+      ...>    }
+      ...>  }
+      ...>).data
+      %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
+
+  With request struct:
+
+      iex> client = AbsintheClient.new(url: "https://graphqlzero.almansi.me/api")
+      iex> AbsintheClient.mutate!(client,
+      ...>   query: "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }",
+      ...>   variables: %{
+      ...>     "input" => %{
+      ...>       "title" => "My New Post",
+      ...>       "body" => "This is the post body."
+      ...>     }
+      ...>   }
+      ...>).data
+      %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
 
   """
   @spec mutate!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
@@ -84,7 +108,9 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Makes a GraphQL subscription and returns a response or raises an error.
+  Runs a `subscription` operation.
+
+  Refer to `request/1` for a list of supported options.
 
   ## Examples
 
@@ -116,7 +142,9 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Makes a GraphQL query and returns a response or raises an error.
+  Runs a `query` operation.
+
+  Refer to `request/1` for a list of supported options.
 
   ## Examples
 
@@ -134,6 +162,64 @@ defmodule AbsintheClient do
     request!([operation_type: :query, url: URI.parse(url)] ++ options)
   end
 
+  @doc """
+  Runs a GraphQL operation.
+
+  This function is a thin wrapper around `Req.request/1`.
+
+  ## Options
+
+  In addition to all options defined on `Req.request/1`,
+  the following options are available:
+
+    * `:operation_type` - The operation type, defaults to `:query`.
+
+    * `:query` - The GraphQL query string. This option is required.
+
+    * `:variables` - A map of key/value pairs to be sent with
+      the query, defaults to `nil`.
+
+  ## Examples
+
+  With options keyword list:
+
+      iex> {:ok, response} =
+      ...>   AbsintheClient.request(
+      ...>     url: "https://rickandmortyapi.com/graphql",
+      ...>     query: "query($id: ID!) { character(id:$id){ name } }",
+      ...>     variables: %{id: 3}
+      ...>   )
+      iex> response.status
+      200
+      iex> response.errors
+      nil
+      iex> response.data
+      %{"character" => %{"name" => "Summer Smith"}}
+
+  With request struct:
+
+      iex> client = AbsintheClient.new(
+      ...>   url: "https://rickandmortyapi.com/graphql",
+      ...>   query: "query($id: ID!) { character(id:$id){ name } }",
+      ...>   variables: %{id: 3}
+      ...> )
+      iex> {:ok, response} = AbsintheClient.request(client)
+      iex> response.status
+      200
+
+  With request struct and options:
+
+      iex> client = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
+      iex> {:ok, response} =
+      ...>   AbsintheClient.request(
+      ...>     client,
+      ...>     query: "query($id: ID!) { character(id:$id){ name } }",
+      ...>     variables: %{id: 3}
+      ...>   )
+      iex> response.status
+      200
+
+  """
   @spec request(Req.Request.t() | keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
   def request(request_or_options)
@@ -147,10 +233,9 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Makes an HTTP request.
+  Runs a GraphQL operation.
 
-  See `request/1` for more information.
-
+  Refer to `request/1` for more information.
   """
   @spec request(Req.Request.t(), options :: keyword()) ::
           {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
@@ -161,13 +246,17 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Makes an HTTP request and returns a response or raises an error.
+  Runs a GraphQL operation and returns a response or raises an error.
 
-  See `request/1` for more information.
+  Refer to `request/1` for more information.
 
   ## Examples
 
-      AbsintheClient.request!(url: url, query: "query { getItem(id: FOO){ id } }")
+      iex> AbsintheClient.request!(
+      ...>  url: "https://rickandmortyapi.com/graphql",
+      ...>  query: "query { character(id:1){ name } }"
+      ...> ).status
+      200
 
   """
   @spec request!(Req.Request.t() | keyword()) :: AbsintheClient.Response.t()
@@ -179,17 +268,15 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Makes an HTTP request and returns a response or raises an error.
+  Runs a GraphQL operation and returns a response or raises an error.
 
   See `request/1` for more information.
 
   ## Examples
 
-      client = AbsintheClient.new(base_url: "http://localhost:4001")
-      AbsintheClient.request!(client,
-        url: "/graphql",
-        query: "query { getItem(id: FOO){ id } }"
-      )
+      iex> client = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
+      iex> AbsintheClient.request!(client, query: "query { character(id:1){ name } }").status
+      200
 
   """
   @spec request!(Req.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()
