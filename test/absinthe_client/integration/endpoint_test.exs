@@ -1,10 +1,10 @@
-Code.require_file("../../../support/http_client.exs", __DIR__)
+Code.require_file("../../support/http_client.exs", __DIR__)
 
-defmodule Absinthe.Socket.Integration.EndpointTest do
-  # These tests aren't directly related to the Absinthe.Socket functionality–
+defmodule AbsintheClient.Integration.EndpointTest do
+  # These tests aren't directly related to the AbsintheClient.WebSocket functionality–
   # they exist as sanity checks that the GraphQL server is running and accepting connections.
   use ExUnit.Case, async: true
-  alias Absinthe.SocketTest.Endpoint
+  alias AbsintheClientTest.Endpoint
 
   setup do
     {:ok, http_port: Endpoint.http_port()}

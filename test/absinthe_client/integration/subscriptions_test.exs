@@ -29,7 +29,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       }
     end
 
-    def handle_info(%Absinthe.Socket.Reply{ref: ref, result: result}, state) do
+    def handle_info(%AbsintheClient.WebSocket.Reply{ref: ref, result: result}, state) do
       {:ok, %{"subscriptionId" => subscription_id}} = result
 
       send(state.parent, {:subscription_reply, ref, subscription_id})
@@ -39,7 +39,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       {:noreply, %{state | subscription_id_to_ref: new_subs}}
     end
 
-    def handle_info(%Absinthe.Subscription.Data{id: subscription_id} = data, state) do
+    def handle_info(%AbsintheClient.Subscription.Data{id: subscription_id} = data, state) do
       %{"data" => %{"repoCommentSubscribe" => object}} = data.result
 
       case Map.fetch(state.subscription_id_to_ref, subscription_id) do
@@ -91,7 +91,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     end
 
     def handle_call(:trigger_clear_subscriptions, _from, state) do
-      Absinthe.Socket.clear_subscriptions(state.socket, ref = make_ref())
+      AbsintheClient.WebSocket.clear_subscriptions(state.socket, ref = make_ref())
       {:reply, ref, state}
     end
   end
@@ -148,8 +148,8 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
   end
 
   setup do
-    http_url = Absinthe.SocketTest.Endpoint.graphql_url()
-    socket_url = Absinthe.SocketTest.Endpoint.subscription_url()
+    http_url = AbsintheClientTest.Endpoint.graphql_url()
+    socket_url = AbsintheClientTest.Endpoint.subscription_url()
 
     {:ok, %{http_url: http_url, socket_url: socket_url}}
   end

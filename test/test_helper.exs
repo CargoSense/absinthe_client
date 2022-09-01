@@ -1,13 +1,13 @@
-Application.put_env(:absinthe_socket, Absinthe.SocketTest.Endpoint,
+Application.put_env(:absinthe_client, AbsintheClientTest.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 8001],
   secret_key_base: "HOJE5xctETrtYS5RfAG+Ivz35iKH7JXyVz7MN6ExwmjIDVMVXoMbpHrp8ZEt++cK",
   check_origin: false,
-  pubsub_server: Absinthe.SocketTest.PubSub,
-  render_errors: [view: Absinthe.SocketTest.ErrorView],
+  pubsub_server: AbsintheClientTest.PubSub,
+  render_errors: [view: AbsintheClientTest.ErrorView],
   server: true
 )
 
-defmodule Absinthe.SocketTest.DB do
+defmodule AbsintheClientTest.DB do
   use Supervisor
 
   def start_link(arg) do
@@ -26,7 +26,7 @@ defmodule Absinthe.SocketTest.DB do
     phoenix: %{name: "Chris McCord"}
   }
 
-  @repo_comments_table :absinthe_socket_test_db_repo_comments
+  @repo_comments_table :absinthe_client_test_db_repo_comments
 
   @impl true
   def init(_arg) do
@@ -89,9 +89,9 @@ defmodule Absinthe.SocketTest.DB do
   end
 end
 
-defmodule Absinthe.SocketTest.Schema do
+defmodule AbsintheClientTest.Schema do
   use Absinthe.Schema
-  alias Absinthe.SocketTest.DB
+  alias AbsintheClientTest.DB
 
   enum :repository do
     description "A code repository or project"
@@ -171,11 +171,11 @@ defmodule Absinthe.SocketTest.Schema do
   end
 end
 
-defmodule Absinthe.SocketTest.UserSocket do
+defmodule AbsintheClientTest.UserSocket do
   use Phoenix.Socket
 
   use Absinthe.Phoenix.Socket,
-    schema: Absinthe.SocketTest.Schema
+    schema: AbsintheClientTest.Schema
 
   @impl Phoenix.Socket
   def connect(_params, socket, _connect_info) do
@@ -186,16 +186,16 @@ defmodule Absinthe.SocketTest.UserSocket do
   def id(_socket), do: nil
 end
 
-defmodule Absinthe.SocketTest.Endpoint do
-  use Phoenix.Endpoint, otp_app: :absinthe_socket
+defmodule AbsintheClientTest.Endpoint do
+  use Phoenix.Endpoint, otp_app: :absinthe_client
   use Absinthe.Phoenix.Endpoint
 
   plug Plug.Session,
     store: :cookie,
-    key: "_absinthe_socket_key",
+    key: "_absinthe_client_key",
     signing_salt: "tr9gMQxErRYmg4"
 
-  socket "/socket", Absinthe.SocketTest.UserSocket,
+  socket "/socket", AbsintheClientTest.UserSocket,
     websocket: true,
     longpoll: false
 
@@ -204,7 +204,7 @@ defmodule Absinthe.SocketTest.Endpoint do
     pass: ["*/*"],
     json_decoder: Jason
 
-  plug Absinthe.Plug, schema: Absinthe.SocketTest.Schema
+  plug Absinthe.Plug, schema: AbsintheClientTest.Schema
 
   def http_port, do: __MODULE__.config(:http)[:port]
   def graphql_url, do: __MODULE__.url() <> "/graphql"
@@ -217,10 +217,10 @@ end
 
 Supervisor.start_link(
   [
-    Absinthe.SocketTest.DB,
-    {Phoenix.PubSub, name: Absinthe.SocketTest.PubSub, adapter: Phoenix.PubSub.PG2},
-    Absinthe.SocketTest.Endpoint,
-    {Absinthe.Subscription, Absinthe.SocketTest.Endpoint}
+    AbsintheClientTest.DB,
+    {Phoenix.PubSub, name: AbsintheClientTest.PubSub, adapter: Phoenix.PubSub.PG2},
+    AbsintheClientTest.Endpoint,
+    {Absinthe.Subscription, AbsintheClientTest.Endpoint}
   ],
   strategy: :one_for_one
 )

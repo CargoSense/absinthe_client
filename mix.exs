@@ -3,7 +3,7 @@ defmodule Absinthe.Socket.MixProject do
 
   def project do
     [
-      app: :absinthe_socket,
+      app: :absinthe_client,
       version: "0.1.0",
       elixir: "~> 1.10",
       start_permanent: Mix.env() == :prod,
@@ -44,13 +44,13 @@ defmodule Absinthe.Socket.MixProject do
         # Ungrouped modules
         # AbsintheClient
         # AbsintheClient.Request
-        # Absinthe.Socket
+        # AbsintheClient.WebSocket
 
         Structures: [
           AbsintheClient.Operation,
           AbsintheClient.Response,
-          Absinthe.Socket.Reply,
-          Absinthe.Subscription.Data
+          AbsintheClient.Subscription.Data,
+          AbsintheClient.WebSocket.Reply
         ]
       ]
     ]

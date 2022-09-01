@@ -1,4 +1,4 @@
-defmodule Absinthe.SocketUnitTest do
+defmodule AbsintheClient.SocketTest do
   use ExUnit.Case, async: false
   use Slipstream.SocketTest
 
@@ -6,7 +6,9 @@ defmodule Absinthe.SocketUnitTest do
 
   test "connects and joins control topic" do
     socket_pid =
-      start_supervised!({Absinthe.Socket, {self(), uri: "wss://localhost", test_mode?: true}})
+      start_supervised!(
+        {AbsintheClient.WebSocket, {self(), uri: "wss://localhost", test_mode?: true}}
+      )
 
     connect_and_assert_join socket_pid, @control_topic, %{}, :ok
   end
@@ -15,7 +17,7 @@ defmodule Absinthe.SocketUnitTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = Absinthe.Socket.push(client, msg)
+    assert :ok = AbsintheClient.WebSocket.push(client, msg)
     assert_push @control_topic, "doc", %{query: ^msg}
   end
 
@@ -23,7 +25,7 @@ defmodule Absinthe.SocketUnitTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = Absinthe.Socket.push(client, msg, variables: %{"foo" => "bar"})
+    assert :ok = AbsintheClient.WebSocket.push(client, msg, variables: %{"foo" => "bar"})
     assert_push @control_topic, "doc", %{query: ^msg, variables: %{"foo" => "bar"}}
   end
 
@@ -31,11 +33,14 @@ defmodule Absinthe.SocketUnitTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = Absinthe.Socket.push(client, msg, ref: test)
+    assert :ok = AbsintheClient.WebSocket.push(client, msg, ref: test)
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :this_is_not_a_real_result})
 
-    assert_receive %Absinthe.Socket.Reply{ref: ^test, result: {:ok, :this_is_not_a_real_result}}
+    assert_receive %AbsintheClient.WebSocket.Reply{
+      ref: ^test,
+      result: {:ok, :this_is_not_a_real_result}
+    }
   end
 
   test "receives messages from an active subscription" do
@@ -45,7 +50,7 @@ defmodule Absinthe.SocketUnitTest do
     expected_result = %{"id" => result_id(client)}
     push(client, sub_id, "subscription:data", %{"result" => expected_result})
 
-    assert_receive %Absinthe.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
+    assert_receive %AbsintheClient.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
   end
 
   test "clear_subscriptions/1 unsubscribes from all active subscriptions", %{test: ref} do
@@ -53,16 +58,26 @@ defmodule Absinthe.SocketUnitTest do
     sub_a = subscribe!(client)
     sub_b = subscribe!(client)
 
-    :ok = Absinthe.Socket.clear_subscriptions(client, ref)
+    :ok = AbsintheClient.WebSocket.clear_subscriptions(client, ref)
 
     assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_b}, sub_b_reply_ref
     assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_a}, sub_a_reply_ref
 
     reply(client, sub_b_reply_ref, result_b = {:ok, %{"subscriptionId" => sub_b}})
-    assert_receive %Absinthe.Socket.Reply{event: "unsubscribe", ref: ^ref, result: ^result_b}
+
+    assert_receive %AbsintheClient.WebSocket.Reply{
+      event: "unsubscribe",
+      ref: ^ref,
+      result: ^result_b
+    }
 
     reply(client, sub_a_reply_ref, result_a = {:ok, %{"subscriptionId" => sub_a}})
-    assert_receive %Absinthe.Socket.Reply{event: "unsubscribe", ref: ^ref, result: ^result_a}
+
+    assert_receive %AbsintheClient.WebSocket.Reply{
+      event: "unsubscribe",
+      ref: ^ref,
+      result: ^result_a
+    }
   end
 
   test "enqueues on disconnect and re-subscribes on reconnect", %{test: ref} do
@@ -70,20 +85,20 @@ defmodule Absinthe.SocketUnitTest do
 
     # client: sends subscription to the server
     query = "msg:#{System.unique_integer()}"
-    assert :ok = Absinthe.Socket.push(client, query, ref: ref)
+    assert :ok = AbsintheClient.WebSocket.push(client, query, ref: ref)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
     reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id = sub_id(client)}})
 
-    assert_receive %Absinthe.Socket.Reply{
+    assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
       result: {:ok, %{"subscriptionId" => ^sub_id}}
     }
 
     expected_result = %{"id" => result_id(client)}
     push(client, sub_id, "subscription:data", %{"result" => expected_result})
-    assert_receive %Absinthe.Subscription.Data{id: ^sub_id, result: ^expected_result}
+    assert_receive %AbsintheClient.Subscription.Data{id: ^sub_id, result: ^expected_result}
 
     disconnect(client, :closed)
 
@@ -92,32 +107,32 @@ defmodule Absinthe.SocketUnitTest do
     assert_push @control_topic, "doc", %{query: ^query}, resub_ref, 1000
     reply(client, resub_ref, {:ok, %{"subscriptionId" => resub_id = sub_id(client)}})
 
-    assert_receive %Absinthe.Socket.Reply{
+    assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
       result: {:ok, %{"subscriptionId" => ^resub_id}}
     }
 
     expected_result = %{"id" => result_id(client)}
     push(client, resub_id, "subscription:data", %{"result" => expected_result})
-    assert_receive %Absinthe.Subscription.Data{id: ^resub_id, result: ^expected_result}
+    assert_receive %AbsintheClient.Subscription.Data{id: ^resub_id, result: ^expected_result}
   end
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
     client_opts = Keyword.put_new(opts, :test_mode?, true)
-    client_pid = start_supervised!({Absinthe.Socket, {self(), client_opts}})
+    client_pid = start_supervised!({AbsintheClient.WebSocket, {self(), client_opts}})
     connect_and_assert_join client_pid, @control_topic, %{}, :ok
     client_pid
   end
 
   defp subscribe!(client, query \\ subscription_query()) do
     # client: sends subscription to the server
-    assert :ok = Absinthe.Socket.push(client, query, ref: ref = make_ref())
+    assert :ok = AbsintheClient.WebSocket.push(client, query, ref: ref = make_ref())
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
     reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id = sub_id(client)}})
 
-    assert_receive %Absinthe.Socket.Reply{
+    assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
       result: {:ok, %{"subscriptionId" => ^sub_id}}
     }

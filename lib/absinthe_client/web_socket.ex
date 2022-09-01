@@ -1,9 +1,9 @@
-defmodule Absinthe.Socket do
+defmodule AbsintheClient.WebSocket do
   @moduledoc """
   WebSocket client for [Absinthe](https://hexdocs.pm/absinthe).
   """
   use Slipstream, restart: :temporary
-  alias Absinthe.Socket.{Push, Reply}
+  alias AbsintheClient.WebSocket.{Push, Reply}
 
   @control_topic "__absinthe__:control"
 
@@ -18,9 +18,9 @@ defmodule Absinthe.Socket do
 
   ## Examples
 
-      {:ok, sock} = Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
+      {:ok, sock} = AbsintheClient.WebSocket.start_link(uri: "wss://example.com/subscriptions/websocket")
 
-      Absinthe.Socket.push(sock,
+      AbsintheClient.WebSocket.push(sock,
         "subscription ($id: ID!) {orderCreated(storeId: $id) { id } }",
         variables: %{id: "store123"}
       )
@@ -28,11 +28,11 @@ defmodule Absinthe.Socket do
   ## Handling subscription messages
 
   Results will be sent to the caller in the form of
-  [`Subscription.Data`](`Absinthe.Subscription.Data`) structs.
+  [`Subscription.Data`](`AbsintheClient.Subscription.Data`) structs.
 
   In a `GenServer` for instance, you would implement `handle_info/2` callback:
 
-      def handle_info(%Absinthe.Subscription.Data{id: _topic, result: payload}, state) do
+      def handle_info(%AbsintheClient.Subscription.Data{id: _topic, result: payload}, state) do
         # code...
         {:noreply, state}
       end
@@ -40,10 +40,10 @@ defmodule Absinthe.Socket do
   ## Receiving replies
 
   Usually only subscription data messages are sent to the
-  caller. If you want to receive a push [`Reply`](`Absinthe.Socket.Reply`)
+  caller. If you want to receive a push [`Reply`](`AbsintheClient.WebSocket.Reply`)
   you pass a reference to the `:ref` option:
 
-      Absinthe.Socket.push(
+      AbsintheClient.WebSocket.push(
         sock,
         "query GetItem($id: ID!) { item(id: $id) { name } }",
         ref: "get-item-ref"
@@ -52,7 +52,7 @@ defmodule Absinthe.Socket do
   ...and handle the reply:
 
       receive do
-        %Absinthe.Socket.Reply{ref: "get-item-ref", result: result} ->
+        %AbsintheClient.WebSocket.Reply{ref: "get-item-ref", result: result} ->
           # do something with result...
       after
         5_000 ->
@@ -101,7 +101,7 @@ defmodule Absinthe.Socket do
           operation :: AbsintheSocket.Operation.t(),
           timeout :: non_neg_integer()
         ) ::
-          {:ok, Absinthe.Socket.Reply.t()} | {:error, Exception.t()}
+          {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, Exception.t()}
   def push_sync(socket, %AbsintheClient.Operation{} = operation, timeout \\ 5000) do
     push = Push.new_doc(operation.query, operation.variables, operation.owner, operation.ref)
     GenServer.call(socket, {:push_sync, push, timeout}, timeout)
@@ -121,9 +121,9 @@ defmodule Absinthe.Socket do
 
   ## Examples
 
-      Absinthe.Socket.clear_subscriptions(socket)
+      AbsintheClient.WebSocket.clear_subscriptions(socket)
 
-      Absinthe.Socket.clear_subscriptions(socket, "my-unsubscribe-ref")
+      AbsintheClient.WebSocket.clear_subscriptions(socket, "my-unsubscribe-ref")
 
   """
   @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
@@ -138,7 +138,7 @@ defmodule Absinthe.Socket do
 
   ## Examples
 
-      Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
+      AbsintheClient.WebSocket.start_link(uri: "wss://example.com/subscriptions/websocket")
 
   """
   @spec start_link({parent :: pid, opts :: Keyword.t()}) :: GenServer.on_start()
@@ -201,7 +201,7 @@ defmodule Absinthe.Socket do
   def handle_message(topic, "subscription:data", %{"result" => result}, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
       {:ok, %{pid: pid}} ->
-        message = %Absinthe.Subscription.Data{id: topic, result: result}
+        message = %AbsintheClient.Subscription.Data{id: topic, result: result}
         send(pid, message)
 
       _ ->

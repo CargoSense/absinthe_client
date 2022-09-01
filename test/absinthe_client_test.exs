@@ -1,6 +1,6 @@
 defmodule AbsintheClientUnitTest do
   use ExUnit.Case, async: true
-  alias Absinthe.SocketTest.Endpoint
+  alias AbsintheClientTest.Endpoint
 
   doctest AbsintheClient
 

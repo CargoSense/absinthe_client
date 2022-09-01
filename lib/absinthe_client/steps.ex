@@ -113,7 +113,7 @@ defmodule AbsintheClient.Steps do
     operation = %AbsintheClient.Operation{operation | ref: operation_ref}
     new_request = put_operation(request, operation)
 
-    case Absinthe.Socket.push_sync(socket_name, operation) do
+    case AbsintheClient.WebSocket.push_sync(socket_name, operation) do
       {:error, %{__exception__: true} = exception} ->
         {new_request, exception}
 

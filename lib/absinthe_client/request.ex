@@ -78,7 +78,7 @@ defmodule AbsintheClient.Request do
 
   ## Examples
 
-      iex> url = Absinthe.SocketTest.Endpoint.subscription_url()
+      iex> url = AbsintheClientTest.Endpoint.subscription_url()
       iex> client = AbsintheClient.new(url: url)
       iex> socket_name = AbsintheClient.Request.start_socket(client)
       iex> is_atom(socket_name)
@@ -92,7 +92,7 @@ defmodule AbsintheClient.Request do
 
     case DynamicSupervisor.start_child(
            AbsintheClient.SocketSupervisor,
-           {Absinthe.Socket, {owner, name: name, uri: request.url}}
+           {AbsintheClient.WebSocket, {owner, name: name, uri: request.url}}
          ) do
       {:ok, _} ->
         name

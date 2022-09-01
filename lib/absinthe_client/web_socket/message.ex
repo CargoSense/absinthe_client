@@ -1,4 +1,4 @@
-defmodule Absinthe.Socket.Reply do
+defmodule AbsintheClient.WebSocket.Reply do
   @moduledoc """
   Defines the structure of a reply to a pushed request.
   """
@@ -6,7 +6,7 @@ defmodule Absinthe.Socket.Reply do
   defstruct [:event, :result, :ref]
 end
 
-defmodule Absinthe.Socket.Push do
+defmodule AbsintheClient.WebSocket.Push do
   # Internal structure to track pushed requests.
   @moduledoc false
   defstruct [:event, :pid, :params, :ref]

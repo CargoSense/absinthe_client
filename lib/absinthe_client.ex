@@ -70,7 +70,7 @@ defmodule AbsintheClient do
         variables: %{"id" => "some-item"}
       )
 
-  Consult the `Absinthe.Socket` docs for more information about subscriptions.
+  Consult the `AbsintheClient.WebSocket` docs for more information about subscriptions.
 
   """
   @spec subscribe!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()

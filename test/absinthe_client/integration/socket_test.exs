@@ -1,6 +1,6 @@
-defmodule Absinthe.Socket.Integration.SocketTest do
+defmodule AbsintheClient.Integration.WebSocketTest do
   use ExUnit.Case, async: true
-  alias Absinthe.SocketTest.Endpoint
+  alias AbsintheClientTest.Endpoint
 
   defmodule Listener do
     use GenServer
@@ -15,7 +15,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
       {:ok, socket_pid} =
         DynamicSupervisor.start_child(
           AbsintheClient.SocketSupervisor,
-          {Absinthe.Socket, {self(), uri: socket_url}}
+          {AbsintheClient.WebSocket, {self(), uri: socket_url}}
         )
 
       {:ok, socket_pid}
@@ -41,15 +41,15 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     }
     """
 
-    client = start_supervised!({Absinthe.Socket, {self(), uri: uri}})
+    client = start_supervised!({AbsintheClient.WebSocket, {self(), uri: uri}})
 
     :ok =
-      Absinthe.Socket.push(client, query,
+      AbsintheClient.WebSocket.push(client, query,
         variables: %{"repository" => "ABSINTHE"},
         ref: ref
       )
 
-    assert_receive %Absinthe.Socket.Reply{
+    assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
       result: {:ok, %{"data" => %{"creator" => %{"name" => "Ben Wilson"}}}}
     }
@@ -59,11 +59,11 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     socket_url: uri,
     test: ref
   } do
-    client = start_supervised!({Absinthe.Socket, {self(), uri: uri}})
+    client = start_supervised!({AbsintheClient.WebSocket, {self(), uri: uri}})
 
-    :ok = Absinthe.Socket.push(client, "query { doesNotExist { id } }", ref: ref)
+    :ok = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }", ref: ref)
 
-    assert_receive %Absinthe.Socket.Reply{
+    assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
       result:
         {:error,
@@ -78,7 +78,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
     }
 
     :ok =
-      Absinthe.Socket.push(
+      AbsintheClient.WebSocket.push(
         client,
         """
         query Creator($repository: Repository!) {
@@ -90,7 +90,7 @@ defmodule Absinthe.Socket.Integration.SocketTest do
         ref: ref
       )
 
-    assert_receive %Absinthe.Socket.Reply{
+    assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
       result:
         {:error,
