@@ -20,7 +20,7 @@ defmodule AbsintheClient do
       iex> res = AbsintheClient.query!("https://rickandmortyapi.com/graphql",
       ...>   query: "query { character(id:1){ name } }"
       ...> )
-      iex> get_in(res.data, ~w(character name))
+      iex> get_in(res.body, ~w(data character name))
       "Rick Sanchez"
 
   Same, but by explicitly building a `Req.Request` struct first:
@@ -29,7 +29,7 @@ defmodule AbsintheClient do
       iex> res = AbsintheClient.query!(req,
       ...>   query: "query { character(id:1){ name } }"
       ...> )
-      iex> get_in(res.data, ~w(character name))
+      iex> get_in(res.body, ~w(data character name))
       "Rick Sanchez"
 
   Making a query with variables:
@@ -38,7 +38,7 @@ defmodule AbsintheClient do
       ...>   query: "query($id: ID!) { character(id:$id){ name } }",
       ...>   variables: %{id: 2}
       ...> )
-      iex> get_in(res.data, ~w(character name))
+      iex> get_in(res.body, ~w(data character name))
       "Morty Smith"
 
   """
@@ -78,7 +78,7 @@ defmodule AbsintheClient do
       ...>      "body" => "This is the post body."
       ...>    }
       ...>  }
-      ...>).data
+      ...>).body["data"]
       %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
 
   With request struct:
@@ -92,11 +92,11 @@ defmodule AbsintheClient do
       ...>       "body" => "This is the post body."
       ...>     }
       ...>   }
-      ...>).data
+      ...>).body["data"]
       %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
 
   """
-  @spec mutate!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
+  @spec mutate!(String.t() | Req.Request.t()) :: Req.Response.t()
   def mutate!(url_or_request, options \\ [])
 
   def mutate!(%Req.Request{} = request, options) do
@@ -130,7 +130,7 @@ defmodule AbsintheClient do
   Consult the `AbsintheClient.WebSocket` docs for more information about subscriptions.
 
   """
-  @spec subscribe!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
+  @spec subscribe!(String.t() | Req.Request.t()) :: Req.Response.t()
   def subscribe!(url_or_request, options \\ [])
 
   def subscribe!(%Req.Request{} = request, options) do
@@ -151,7 +151,7 @@ defmodule AbsintheClient do
       AbsintheClient.query!(url, query: "query { getItem(id: FOO){ id } }")
 
   """
-  @spec query!(String.t() | Req.Request.t()) :: AbsintheClient.Response.t()
+  @spec query!(String.t() | Req.Request.t()) :: Req.Response.t()
   def query!(url_or_request, options \\ [])
 
   def query!(%Req.Request{} = request, options) do
@@ -164,8 +164,6 @@ defmodule AbsintheClient do
 
   @doc """
   Runs a GraphQL operation.
-
-  This function is a thin wrapper around `Req.request/1`.
 
   ## Options
 
@@ -191,9 +189,9 @@ defmodule AbsintheClient do
       ...>   )
       iex> response.status
       200
-      iex> response.errors
+      iex> response.body["errors"]
       nil
-      iex> response.data
+      iex> response.body["data"]
       %{"character" => %{"name" => "Summer Smith"}}
 
   With request struct:
@@ -221,7 +219,7 @@ defmodule AbsintheClient do
 
   """
   @spec request(Req.Request.t() | keyword()) ::
-          {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
+          {:ok, Req.Response.t()} | {:error, Exception.t()}
   def request(request_or_options)
 
   def request(%Req.Request{} = request) do
@@ -238,12 +236,8 @@ defmodule AbsintheClient do
   Refer to `request/1` for more information.
   """
   @spec request(Req.Request.t(), options :: keyword()) ::
-          {:ok, AbsintheClient.Response.t()} | {:error, Exception.t()}
-  def request(request, options) when is_list(options) do
-    request
-    |> Req.Request.merge_options(options)
-    |> AbsintheClient.Request.run()
-  end
+          {:ok, Req.Response.t()} | {:error, Exception.t()}
+  defdelegate request(request, options), to: Req
 
   @doc """
   Runs a GraphQL operation and returns a response or raises an error.
@@ -259,7 +253,7 @@ defmodule AbsintheClient do
       200
 
   """
-  @spec request!(Req.Request.t() | keyword()) :: AbsintheClient.Response.t()
+  @spec request!(Req.Request.t() | keyword()) :: Req.Response.t()
   def request!(request_or_options) do
     case request(request_or_options) do
       {:ok, response} -> response
@@ -279,7 +273,7 @@ defmodule AbsintheClient do
       200
 
   """
-  @spec request!(Req.Request.t(), options :: keyword()) :: AbsintheClient.Response.t()
+  @spec request!(Req.Request.t(), options :: keyword()) :: Req.Response.t()
   def request!(request, options) do
     case request(request, options) do
       {:ok, response} -> response

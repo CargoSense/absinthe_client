@@ -34,17 +34,19 @@ defmodule AbsintheClientUnitTest do
   """
 
   test "query!/2 with a graphql query string", %{url: url} do
-    assert AbsintheClient.query!(url, query: @creator_query_graphql).errors == [
-             %{
-               "locations" => [%{"column" => 11, "line" => 2}],
-               "message" =>
-                 "In argument \"repository\": Expected type \"Repository!\", found null."
-             },
-             %{
-               "locations" => [%{"column" => 15, "line" => 1}],
-               "message" => "Variable \"repository\": Expected non-null, found null."
-             }
-           ]
+    assert AbsintheClient.query!(url, query: @creator_query_graphql).body == %{
+             "errors" => [
+               %{
+                 "locations" => [%{"column" => 11, "line" => 2}],
+                 "message" =>
+                   "In argument \"repository\": Expected type \"Repository!\", found null."
+               },
+               %{
+                 "locations" => [%{"column" => 15, "line" => 1}],
+                 "message" => "Variable \"repository\": Expected non-null, found null."
+               }
+             ]
+           }
 
     response =
       AbsintheClient.query!(url,
@@ -52,9 +54,9 @@ defmodule AbsintheClientUnitTest do
         variables: %{"repository" => "PHOENIX"}
       )
 
-    assert response.operation.operation_type == :query
-    assert response.operation.query == @creator_query_graphql
-    assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
+    assert response.private.operation.operation_type == :query
+    assert response.private.operation.query == @creator_query_graphql
+    assert response.body == %{"data" => %{"creator" => %{"name" => "Chris McCord"}}}
   end
 
   test "mutate!/1 with a url", %{url: url, test: test} do
@@ -70,8 +72,8 @@ defmodule AbsintheClientUnitTest do
         }
       )
 
-    assert response.operation.operation_type == :mutation
-    assert response.data["repoComment"]["id"]
+    assert response.private.operation.operation_type == :mutation
+    assert response.body["data"]["repoComment"]["id"]
   end
 
   test "mutate!/1 with a Request", %{test: test, url: url} do
@@ -88,8 +90,8 @@ defmodule AbsintheClientUnitTest do
         }
       )
 
-    assert response.operation.operation_type == :mutation
-    assert response.data["repoComment"]["id"]
+    assert response.private.operation.operation_type == :mutation
+    assert response.body["data"]["repoComment"]["id"]
   end
 
   test "request!/2 with a Request", %{url: url} do
@@ -97,18 +99,20 @@ defmodule AbsintheClientUnitTest do
 
     assert AbsintheClient.request!(request,
              query: "query { creator(repository: FOO) { name } }"
-           ).errors ==
-             [
-               %{
-                 "locations" => [
-                   %{
-                     "column" => 17,
-                     "line" => 1
-                   }
-                 ],
-                 "message" => "Argument \"repository\" has invalid value FOO."
-               }
-             ]
+           ).body ==
+             %{
+               "errors" => [
+                 %{
+                   "locations" => [
+                     %{
+                       "column" => 17,
+                       "line" => 1
+                     }
+                   ],
+                   "message" => "Argument \"repository\" has invalid value FOO."
+                 }
+               ]
+             }
 
     response =
       AbsintheClient.request!(request,
@@ -116,9 +120,9 @@ defmodule AbsintheClientUnitTest do
         variables: %{"repository" => "PHOENIX"}
       )
 
-    refute response.operation.operation_type
-    assert response.operation.query == @creator_query_graphql
-    assert response.data == %{"creator" => %{"name" => "Chris McCord"}}
+    refute response.private.operation.operation_type
+    assert response.private.operation.query == @creator_query_graphql
+    assert response.body == %{"data" => %{"creator" => %{"name" => "Chris McCord"}}}
   end
 
   describe "subscribe!/1 (WebSocket)" do
@@ -130,10 +134,10 @@ defmodule AbsintheClientUnitTest do
           variables: %{"repository" => "PHOENIX"}
         )
 
-      assert response.operation.operation_type == :subscription
-      assert %{"subscriptionId" => subscription_id} = response.data
+      assert response.private.operation.operation_type == :subscription
+      assert %{"data" => %{"subscriptionId" => subscription_id}} = response.body
       assert subscription_id =~ "__absinthe__:doc:"
-      refute response.errors
+      refute response.body["errors"]
     end
 
     test "subscribe!/1 with a Request", %{subscription_url: subscription_url} do
@@ -146,10 +150,10 @@ defmodule AbsintheClientUnitTest do
           variables: %{"repository" => "PHOENIX"}
         )
 
-      assert response.operation.operation_type == :subscription
-      assert %{"subscriptionId" => subscription_id} = response.data
+      assert response.private.operation.operation_type == :subscription
+      assert %{"data" => %{"subscriptionId" => subscription_id}} = response.body
       assert subscription_id =~ "__absinthe__:doc:"
-      refute response.errors
+      refute response.body["errors"]
     end
   end
 end

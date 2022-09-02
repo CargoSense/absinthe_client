@@ -37,8 +37,6 @@ defmodule AbsintheClient.Request do
 
   """
 
-  @client_operation_key :absinthe_client_operation
-
   @doc """
   Attaches the `AbsintheClient` steps to a given `request`.
 
@@ -95,7 +93,7 @@ defmodule AbsintheClient.Request do
 
     case build_operation(request) do
       %AbsintheClient.Operation{} = operation ->
-        request = put_operation(request, operation)
+        request = Req.Request.put_private(request, :operation, operation)
 
         # todo: support :get request formatting
         %{request | body: Jason.encode_to_iodata!(operation)}
@@ -110,15 +108,14 @@ defmodule AbsintheClient.Request do
   Copies the operation from the request to the response.
   """
   def put_response_operation({%Req.Request{} = request, %Req.Response{} = response}) do
-    operation = fetch_operation!(request, :put_response_operation)
-    {request, put_operation(response, operation)}
+    {request, Req.Response.put_private(response, :operation, request.private.operation)}
   end
 
   defp build_operation(request) do
     options = Map.take(request.options, [:operation_type, :query, :variables])
 
     cond do
-      operation = get_operation(request) ->
+      operation = Req.Request.get_private(request, :operation) ->
         AbsintheClient.Operation.merge_options(operation, options)
 
       Map.has_key?(options, :query) ->
@@ -129,29 +126,6 @@ defmodule AbsintheClient.Request do
     end
   end
 
-  defp fetch_operation!(%Req.Request{} = request, step) do
-    case get_operation(request) do
-      %AbsintheClient.Operation{} = operation ->
-        operation
-
-      nil ->
-        raise ArgumentError, "no GraphQL operation found on request step #{inspect(step)}"
-
-      other ->
-        raise ArgumentError,
-              "expected an %AbsintheClient.Operation{} on request step #{inspect(step)}, got: #{inspect(other)}"
-    end
-  end
-
-  defp get_operation(request) do
-    Req.Request.get_private(request, @client_operation_key)
-  end
-
-  defp put_operation(%mod{} = request_or_response, %AbsintheClient.Operation{} = operation)
-       when mod in [Req.Request, Req.Response] do
-    mod.put_private(request_or_response, @client_operation_key, operation)
-  end
-
   @doc """
   Overrides the Req adapter for subscription requests.
 
@@ -159,7 +133,7 @@ defmodule AbsintheClient.Request do
 
   """
   def put_ws_adapter(%Req.Request{} = request) do
-    case fetch_operation!(request, :put_ws_adapter) do
+    case Req.Request.get_private(request, :operation) do
       %AbsintheClient.Operation{operation_type: :subscription} ->
         %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
 
@@ -190,12 +164,12 @@ defmodule AbsintheClient.Request do
 
   """
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    operation = fetch_operation!(request, :run_absinthe_ws_adapter)
+    operation = request.private.operation
     socket_name = AbsintheClient.Request.start_socket(operation.owner, request)
 
     operation_ref = make_ref()
     operation = %AbsintheClient.Operation{operation | ref: operation_ref}
-    new_request = put_operation(request, operation)
+    new_request = Req.Request.put_private(request, :operation, operation)
 
     case AbsintheClient.WebSocket.push_sync(socket_name, operation) do
       {:error, %{__exception__: true} = exception} ->
@@ -204,45 +178,6 @@ defmodule AbsintheClient.Request do
       {:ok, payload} ->
         {new_request, Req.Response.new(body: %{"data" => payload})}
     end
-  end
-
-  @doc """
-  Runs a request pipeline.
-
-  Returns {:ok, response} or {:error, exception}.
-  """
-  def run(request) do
-    case Req.request(request) do
-      {:ok, %Req.Response{} = response} ->
-        run_response(request, response)
-
-      {:error, %{__exception__: true} = exception} ->
-        run_error(request, exception)
-    end
-  end
-
-  defp run_response(_request, resp) do
-    operation = Req.Response.get_private(resp, :absinthe_client_operation)
-
-    result(%AbsintheClient.Response{
-      operation: operation,
-      status: resp.status,
-      headers: resp.headers,
-      data: resp.body["data"],
-      errors: resp.body["errors"]
-    })
-  end
-
-  defp run_error(_request, exception) do
-    result(exception)
-  end
-
-  defp result(%AbsintheClient.Response{} = response) do
-    {:ok, response}
-  end
-
-  defp result(%{__exception__: true} = exception) do
-    {:error, exception}
   end
 
   @doc """

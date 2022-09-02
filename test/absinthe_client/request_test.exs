@@ -32,7 +32,10 @@ defmodule AbsintheClient.RequestTest do
     resp =
       [plug: EchoJSON]
       |> AbsintheClient.new()
-      |> put_operation(AbsintheClient.Operation.new(query: "query GetItem{ getItem{ id } }"))
+      |> Req.Request.put_private(
+        :operation,
+        AbsintheClient.Operation.new(query: "query GetItem{ getItem{ id } }")
+      )
       |> Req.post!()
 
     assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
@@ -40,7 +43,8 @@ defmodule AbsintheClient.RequestTest do
     resp =
       [plug: EchoJSON]
       |> AbsintheClient.new()
-      |> put_operation(
+      |> Req.Request.put_private(
+        :operation,
         AbsintheClient.Operation.new(
           query: "query GetItem{ getItem{ id } }",
           variables: %{"foo" => "bar"}
@@ -56,7 +60,8 @@ defmodule AbsintheClient.RequestTest do
     resp =
       [plug: EchoJSON]
       |> AbsintheClient.new()
-      |> put_operation(
+      |> Req.Request.put_private(
+        :operation,
         AbsintheClient.Operation.new(
           query: "query GetItem{ getItem{ id } }",
           variables: %{}
@@ -73,13 +78,9 @@ defmodule AbsintheClient.RequestTest do
     {:ok, response} =
       [plug: EchoJSON]
       |> AbsintheClient.new()
-      |> put_operation(operation)
-      |> AbsintheClient.Request.run()
+      |> Req.Request.put_private(:operation, operation)
+      |> Req.request()
 
-    assert response.operation == operation
-  end
-
-  defp put_operation(%Req.Request{} = request, %AbsintheClient.Operation{} = op) do
-    Req.Request.put_private(request, :absinthe_client_operation, op)
+    assert response.private.operation == operation
   end
 end

@@ -66,7 +66,10 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
           variables: %{"repository" => name}
         )
 
-      %{data: %{"subscriptionId" => subscription_id}, operation: operation} = response
+      %{
+        body: %{"data" => %{"subscriptionId" => subscription_id}},
+        private: %{operation: operation}
+      } = response
 
       send(state.parent, {:subscription_reply, operation.ref, subscription_id})
 
@@ -141,7 +144,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
     def handle_call({:publish!, opts}, _, state) do
       response = AbsintheClient.mutate!(state.client, opts)
-      comment_id = get_in(response.data, ["repoComment", "id"])
+      comment_id = get_in(response.body, ~w(data repoComment id))
 
       {:reply, comment_id, state}
     end
