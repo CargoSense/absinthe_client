@@ -34,7 +34,7 @@ defmodule AbsintheClientUnitTest do
   """
 
   test "query!/2 with a graphql query string", %{url: url} do
-    assert AbsintheClient.query!(url, query: @creator_query_graphql).body == %{
+    assert AbsintheClient.query!(url, @creator_query_graphql).body == %{
              "errors" => [
                %{
                  "locations" => [%{"column" => 11, "line" => 2}],
@@ -48,11 +48,7 @@ defmodule AbsintheClientUnitTest do
              ]
            }
 
-    response =
-      AbsintheClient.query!(url,
-        query: @creator_query_graphql,
-        variables: %{"repository" => "PHOENIX"}
-      )
+    response = AbsintheClient.query!(url, {@creator_query_graphql, %{"repository" => "PHOENIX"}})
 
     assert response.private.operation.operation_type == :query
     assert response.private.operation.query == @creator_query_graphql
@@ -63,13 +59,13 @@ defmodule AbsintheClientUnitTest do
     response =
       AbsintheClient.mutate!(
         url,
-        query: @repo_comment_mutation,
-        variables: %{
-          "input" => %{
-            "repository" => "PHOENIX",
-            "commentary" => Atom.to_string(test)
-          }
-        }
+        {@repo_comment_mutation,
+         %{
+           "input" => %{
+             "repository" => "PHOENIX",
+             "commentary" => Atom.to_string(test)
+           }
+         }}
       )
 
     assert response.private.operation.operation_type == :mutation
@@ -80,14 +76,15 @@ defmodule AbsintheClientUnitTest do
     request = AbsintheClient.new(url: url)
 
     response =
-      AbsintheClient.mutate!(request,
-        query: @repo_comment_mutation,
-        variables: %{
-          "input" => %{
-            "repository" => "PHOENIX",
-            "commentary" => Atom.to_string(test)
-          }
-        }
+      AbsintheClient.mutate!(
+        request,
+        {@repo_comment_mutation,
+         %{
+           "input" => %{
+             "repository" => "PHOENIX",
+             "commentary" => Atom.to_string(test)
+           }
+         }}
       )
 
     assert response.private.operation.operation_type == :mutation
@@ -97,8 +94,9 @@ defmodule AbsintheClientUnitTest do
   test "request!/2 with a Request", %{url: url} do
     request = [url: url] |> AbsintheClient.new()
 
-    assert AbsintheClient.request!(request,
-             query: "query { creator(repository: FOO) { name } }"
+    assert AbsintheClient.request!(
+             request,
+             operation: "query { creator(repository: FOO) { name } }"
            ).body ==
              %{
                "errors" => [
@@ -116,22 +114,20 @@ defmodule AbsintheClientUnitTest do
 
     response =
       AbsintheClient.request!(request,
-        query: @creator_query_graphql,
-        variables: %{"repository" => "PHOENIX"}
+        operation: {@creator_query_graphql, %{"repository" => "PHOENIX"}}
       )
 
-    refute response.private.operation.operation_type
+    assert response.private.operation.operation_type == :query
     assert response.private.operation.query == @creator_query_graphql
     assert response.body == %{"data" => %{"creator" => %{"name" => "Chris McCord"}}}
   end
 
-  describe "subscribe!/1 (WebSocket)" do
-    test "subscribe!/1 with a url", %{subscription_url: subscription_url} do
+  describe "subscribe!/2 (WebSocket)" do
+    test "subscribe!/2 with a url", %{subscription_url: subscription_url} do
       response =
         AbsintheClient.subscribe!(
           subscription_url,
-          query: @repo_comment_subscription,
-          variables: %{"repository" => "PHOENIX"}
+          {@repo_comment_subscription, %{"repository" => "PHOENIX"}}
         )
 
       assert response.private.operation.operation_type == :subscription
@@ -146,8 +142,7 @@ defmodule AbsintheClientUnitTest do
       response =
         AbsintheClient.subscribe!(
           client,
-          query: @repo_comment_subscription,
-          variables: %{"repository" => "PHOENIX"}
+          {@repo_comment_subscription, %{"repository" => "PHOENIX"}}
         )
 
       assert response.private.operation.operation_type == :subscription

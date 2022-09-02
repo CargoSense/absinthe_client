@@ -15,31 +15,23 @@ defmodule AbsintheClient do
 
   ## Examples
 
-  Performing a `query` operation with `AbsintheClient.query!/1`:
+  Performing a `query` operation with `AbsintheClient.query!/2`:
 
-      iex> res = AbsintheClient.query!("https://rickandmortyapi.com/graphql",
-      ...>   query: "query { character(id:1){ name } }"
-      ...> )
-      iex> get_in(res.body, ~w(data character name))
-      "Rick Sanchez"
+      iex> AbsintheClient.query!("https://rickandmortyapi.com/graphql", "query { character(id:1){ name } }").body["data"]
+      %{"character" => %{"name" => "Rick Sanchez"}}
 
   Same, but by explicitly building a `Req.Request` struct first:
 
       iex> req = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
-      iex> res = AbsintheClient.query!(req,
-      ...>   query: "query { character(id:1){ name } }"
-      ...> )
-      iex> get_in(res.body, ~w(data character name))
-      "Rick Sanchez"
+      iex> AbsintheClient.query!(req, "query { character(id:1){ name } }").body["data"]
+      %{"character" => %{"name" => "Rick Sanchez"}}
 
   Making a query with variables:
 
-      iex> res = AbsintheClient.query!("https://rickandmortyapi.com/graphql",
-      ...>   query: "query($id: ID!) { character(id:$id){ name } }",
-      ...>   variables: %{id: 2}
-      ...> )
-      iex> get_in(res.body, ~w(data character name))
-      "Morty Smith"
+      iex> AbsintheClient.query!("https://rickandmortyapi.com/graphql",
+      ...>   {"query($id: ID!) { character(id:$id){ name } }", %{id: 2}}
+      ...> ).body["data"]
+      %{"character" => %{"name" => "Morty Smith"}}
 
   """
 
@@ -55,9 +47,7 @@ defmodule AbsintheClient do
   """
   @spec new(options :: keyword) :: Req.Request.t()
   def new(options \\ []) do
-    {absinthe_options, req_options} =
-      Keyword.split(options, [:operation_type, :query, :variables])
-
+    {absinthe_options, req_options} = Keyword.split(options, [:operation])
     AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
   end
 
@@ -70,41 +60,32 @@ defmodule AbsintheClient do
 
   With URL:
 
-      iex> AbsintheClient.mutate!("https://graphqlzero.almansi.me/api",
-      ...>  query: "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }",
-      ...>  variables: %{
-      ...>    "input" => %{
-      ...>      "title" => "My New Post",
-      ...>      "body" => "This is the post body."
-      ...>    }
-      ...>  }
-      ...>).body["data"]
+      iex> url = "https://graphqlzero.almansi.me/api"
+      iex> doc = "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }"
+      iex> variables = %{"input" => %{"title" => "My New Post", "body" => "This is the post body."}}
+      iex> AbsintheClient.mutate!(url, {doc, variables}).body["data"]
       %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
 
   With request struct:
 
-      iex> client = AbsintheClient.new(url: "https://graphqlzero.almansi.me/api")
-      iex> AbsintheClient.mutate!(client,
-      ...>   query: "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }",
-      ...>   variables: %{
-      ...>     "input" => %{
-      ...>       "title" => "My New Post",
-      ...>       "body" => "This is the post body."
-      ...>     }
-      ...>   }
-      ...>).body["data"]
+      iex> url = "https://graphqlzero.almansi.me/api"
+      iex> doc = "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }"
+      iex> variables = %{"input" => %{"title" => "My New Post", "body" => "This is the post body."}}
+      iex> client = AbsintheClient.new(url: url)
+      iex> AbsintheClient.mutate!(client, {doc, variables}).body["data"]
       %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
 
   """
-  @spec mutate!(String.t() | Req.Request.t()) :: Req.Response.t()
-  def mutate!(url_or_request, options \\ [])
+  @spec mutate!(String.t() | Req.Request.t(), String.t() | {String.t(), nil | map()}, keyword) ::
+          Req.Response.t()
+  def mutate!(url_or_request, doc, options \\ [])
 
-  def mutate!(%Req.Request{} = request, options) do
-    request!(request, [operation_type: :mutation] ++ options)
+  def mutate!(%Req.Request{} = request, doc, options) do
+    request!(request, [operation: {:mutation, doc}] ++ options)
   end
 
-  def mutate!(url, options) do
-    request!([operation_type: :mutation, url: URI.parse(url)] ++ options)
+  def mutate!(url, doc, options) do
+    request!([operation: {:mutation, doc}, url: URI.parse(url)] ++ options)
   end
 
   @doc """
@@ -114,31 +95,29 @@ defmodule AbsintheClient do
 
   ## Examples
 
-      AbsintheClient.subscribe!(url,
-        query: "subscription { itemSubscribe(id: FOO){ likes } }"
-      )
+      AbsintheClient.subscribe!(url, "subscription { itemSubscribe(id: FOO){ likes } }")
 
   with a Request:
 
       client = AbsintheClient.new(url: url)
 
       AbsintheClient.subscribe!(client,
-        query: "subscription ItemSubscription($id: ID!) { itemSubscribe(id: $id){ likes } }",
-        variables: %{"id" => "some-item"}
+        {"subscription ItemSubscription($id: ID!) { itemSubscribe(id: $id){ likes } }", %{"id" => "some-item"}}
       )
 
   Consult the `AbsintheClient.WebSocket` docs for more information about subscriptions.
 
   """
-  @spec subscribe!(String.t() | Req.Request.t()) :: Req.Response.t()
-  def subscribe!(url_or_request, options \\ [])
+  @spec subscribe!(String.t() | Req.Request.t(), String.t() | {String.t(), nil | map()}, keyword) ::
+          Req.Response.t()
+  def subscribe!(url_or_request, doc, options \\ [])
 
-  def subscribe!(%Req.Request{} = request, options) do
-    request!(request, [operation_type: :subscription] ++ options)
+  def subscribe!(%Req.Request{} = request, doc, options) do
+    request!(request, [operation: {:subscription, doc}] ++ options)
   end
 
-  def subscribe!(url, options) do
-    request!([operation_type: :subscription, url: URI.parse(url)] ++ options)
+  def subscribe!(url, doc, options) do
+    request!([operation: {:subscription, doc}, url: URI.parse(url)] ++ options)
   end
 
   @doc """
@@ -151,15 +130,16 @@ defmodule AbsintheClient do
       AbsintheClient.query!(url, query: "query { getItem(id: FOO){ id } }")
 
   """
-  @spec query!(String.t() | Req.Request.t()) :: Req.Response.t()
-  def query!(url_or_request, options \\ [])
+  @spec query!(String.t() | Req.Request.t(), String.t() | {String.t(), nil | map()}) ::
+          Req.Response.t()
+  def query!(url_or_request, doc, options \\ [])
 
-  def query!(%Req.Request{} = request, options) do
-    request!(request, [operation_type: :query] ++ options)
+  def query!(%Req.Request{} = request, doc, options) do
+    request!(request, [operation: {:query, doc}] ++ options)
   end
 
-  def query!(url, options) do
-    request!([operation_type: :query, url: URI.parse(url)] ++ options)
+  def query!(url, doc, options) do
+    request!([operation: {:query, doc}, url: URI.parse(url)] ++ options)
   end
 
   @doc """
@@ -184,8 +164,7 @@ defmodule AbsintheClient do
       iex> {:ok, response} =
       ...>   AbsintheClient.request(
       ...>     url: "https://rickandmortyapi.com/graphql",
-      ...>     query: "query($id: ID!) { character(id:$id){ name } }",
-      ...>     variables: %{id: 3}
+      ...>     operation: {:query, "query($id: ID!) { character(id:$id){ name } }", %{id: 3}}
       ...>   )
       iex> response.status
       200
@@ -198,8 +177,7 @@ defmodule AbsintheClient do
 
       iex> client = AbsintheClient.new(
       ...>   url: "https://rickandmortyapi.com/graphql",
-      ...>   query: "query($id: ID!) { character(id:$id){ name } }",
-      ...>   variables: %{id: 3}
+      ...>   operation: {:query, "query($id: ID!) { character(id:$id){ name } }", %{id: 3}}
       ...> )
       iex> {:ok, response} = AbsintheClient.request(client)
       iex> response.status
@@ -211,12 +189,10 @@ defmodule AbsintheClient do
       iex> {:ok, response} =
       ...>   AbsintheClient.request(
       ...>     client,
-      ...>     query: "query($id: ID!) { character(id:$id){ name } }",
-      ...>     variables: %{id: 3}
+      ...>     operation: {:query, "query($id: ID!) { character(id:$id){ name } }", %{id: 3}}
       ...>   )
       iex> response.status
       200
-
   """
   @spec request(Req.Request.t() | keyword()) ::
           {:ok, Req.Response.t()} | {:error, Exception.t()}
@@ -248,10 +224,9 @@ defmodule AbsintheClient do
 
       iex> AbsintheClient.request!(
       ...>  url: "https://rickandmortyapi.com/graphql",
-      ...>  query: "query { character(id:1){ name } }"
+      ...>  operation: "query { character(id:1){ name } }"
       ...> ).status
       200
-
   """
   @spec request!(Req.Request.t() | keyword()) :: Req.Response.t()
   def request!(request_or_options) do
@@ -269,9 +244,8 @@ defmodule AbsintheClient do
   ## Examples
 
       iex> client = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
-      iex> AbsintheClient.request!(client, query: "query { character(id:1){ name } }").status
+      iex> AbsintheClient.request!(client, operation: "query { character(id:1){ name } }").status
       200
-
   """
   @spec request!(Req.Request.t(), options :: keyword()) :: Req.Response.t()
   def request!(request, options) do

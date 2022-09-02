@@ -43,18 +43,18 @@ defmodule AbsintheClient.Request do
   ## Examples
 
       iex> req = Req.new(method: :post, url: "ws://localhost")
-      iex> req = AbsintheClient.Request.attach(req, operation_type: :query)
-      iex> req.options.operation_type
-      :query
+      iex> req = AbsintheClient.Request.attach(req, operation: "query{}")
+      iex> req.options.operation
+      "query{}"
 
   """
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
-  def attach(%Req.Request{} = request, options) do
+  def attach(%Req.Request{} = request, options \\ []) do
     request
-    |> Req.Request.register_options([:operation_type, :query, :variables])
+    |> Req.Request.register_options([:operation])
     |> Req.Request.merge_options(options)
     |> Req.Request.prepend_request_steps(
-      put_request_operation: &AbsintheClient.Request.put_request_operation/1,
+      put_encode_operation: &AbsintheClient.Request.put_encode_operation/1,
       put_ws_adapter: &AbsintheClient.Request.put_ws_adapter/1
     )
     |> Req.Request.append_response_steps(
@@ -63,45 +63,65 @@ defmodule AbsintheClient.Request do
   end
 
   @doc """
-  Build and persists the GraphQL [`Operation`](`AbsintheClient.Operation`).
-
-  ## Request options
-
-    - `:operation_type` - One of `:query`, `:mutation`, or `:subscription`.
-
-    - `:query` - The GraphQL query string.
-
-    - `:variables` - A map of key-value pairs to be sent with the query.
-
-  ## Examples
-
-      AbsintheClient.query!(query: "query SomeItem{ getItem{ id } }").data
-      #=> %{"getItem" => %{"id" => "abc123"}}
-
-      AbsintheClient.query!(
-        query: "query SomeItem($id: ID!){ getItem(id: $id){ id name } }",
-        variables: %{"id" => "my-item"}).data
-      #=> %{"getItem" => %{"id" => "my-item", "name" => "My Item"}}
-
+  Makes an `AbsintheClient.Operation` for the request and encodes it.
   """
-  def put_request_operation(%Req.Request{} = request) do
+  def put_encode_operation(%Req.Request{} = request) do
     # remove once we support :get request formatting
     unless request.method == :post do
       raise ArgumentError,
             "only :post requests are currently supported, got: #{inspect(request.method)}"
     end
 
-    case build_operation(request) do
-      %AbsintheClient.Operation{} = operation ->
-        request = Req.Request.put_private(request, :operation, operation)
+    with {:ok, operation} <- Map.fetch(request.options, :operation) do
+      req_with_operation =
+        case operation do
+          # "query ($id: ID!) { allLinks(id: $id) { url } }"
+          doc when is_binary(doc) ->
+            put_operation(request, {:query, doc, nil})
 
-        # todo: support :get request formatting
-        %{request | body: Jason.encode_to_iodata!(operation)}
-        |> Req.Request.put_new_header("content-type", "application/json")
+          # {"query ($id: ID!) { allLinks(id: $id) { url } }", %{id: 1}}
+          {doc, vars} when is_binary(doc) and is_map(vars) ->
+            put_operation(request, {:query, doc, vars})
 
-      %{__exception__: true} = exception ->
-        {request, exception}
+          # {:query, "query { allLinks { url }}"}
+          {kind, doc}
+          when kind in [:query, :mutation, :subscription] and
+                 is_binary(doc) ->
+            put_operation(request, {kind, doc, nil})
+
+          # {:query, {"query ($id: ID!) { allLinks(id: $id) { url } }", %{id: 1}}}
+          {kind, {doc, vars}}
+          when kind in [:query, :mutation, :subscription] and
+                 is_binary(doc) and is_map(vars) ->
+            put_operation(request, {kind, doc, vars})
+
+          # {:query, "query ($id: ID!) { allLinks(id: $id) { url } }", %{id: 1}}
+          {kind, doc, vars} = operation
+          when kind in [:query, :mutation, :subscription] and
+                 is_binary(doc) and is_map(vars) ->
+            put_operation(request, operation)
+        end
+
+      # todo: add support for :get request formatting
+      %{req_with_operation | body: Jason.encode_to_iodata!(req_with_operation.private.operation)}
+      |> Req.Request.put_new_header("content-type", "application/json")
+      |> Req.Request.put_new_header("accept", "application/json")
+    else
+      _ -> raise KeyError, key: :operation, term: request.options
     end
+  end
+
+  defp put_operation(%Req.Request{} = req, {op_type, doc, variables}) do
+    Req.Request.put_private(
+      req,
+      :operation,
+      %AbsintheClient.Operation{
+        owner: self(),
+        operation_type: op_type,
+        query: doc,
+        variables: variables
+      }
+    )
   end
 
   @doc """
@@ -109,21 +129,6 @@ defmodule AbsintheClient.Request do
   """
   def put_response_operation({%Req.Request{} = request, %Req.Response{} = response}) do
     {request, Req.Response.put_private(response, :operation, request.private.operation)}
-  end
-
-  defp build_operation(request) do
-    options = Map.take(request.options, [:operation_type, :query, :variables])
-
-    cond do
-      operation = Req.Request.get_private(request, :operation) ->
-        AbsintheClient.Operation.merge_options(operation, options)
-
-      Map.has_key?(options, :query) ->
-        AbsintheClient.Operation.new(options)
-
-      true ->
-        %ArgumentError{message: "expected :query to be set, but it was not"}
-    end
   end
 
   @doc """
@@ -185,7 +190,7 @@ defmodule AbsintheClient.Request do
 
   Usually you do not need to invoke this function directly,
   since it is automatically invoked by the high-level
-  [`subscribe!/1`](`AbsintheClient.subscribe!/1`) function.
+  [`subscribe!/2`](`AbsintheClient.subscribe!/2`) function.
   However in certain cases you may want to start the socket
   process early.
 

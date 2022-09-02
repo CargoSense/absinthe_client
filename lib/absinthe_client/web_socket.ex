@@ -13,7 +13,7 @@ defmodule AbsintheClient.WebSocket do
   The WebSocket does the following:
 
     * Manages subscriptions received from the
-      [`subscribe!/1`](`AbsintheClient.subscribe!/1`)
+      [`subscribe!/2`](`AbsintheClient.subscribe!/2`)
       function, including automatically replaying
       subscription requests in the event of a connection
       loss.

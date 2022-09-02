@@ -54,16 +54,16 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
     def handle_call({:subscribe, {:repo, name}}, _, state) do
       response =
-        AbsintheClient.subscribe!(state.client,
-          query: """
-          subscription RepoCommentSubscription($repository: Repository!){
-            repoCommentSubscribe(repository: $repository){
-              id
-              commentary
-            }
-          }
-          """,
-          variables: %{"repository" => name}
+        AbsintheClient.subscribe!(
+          state.client,
+          {"""
+           subscription RepoCommentSubscription($repository: Repository!){
+             repoCommentSubscribe(repository: $repository){
+               id
+               commentary
+             }
+           }
+           """, %{"repository" => name}}
         )
 
       %{
@@ -143,7 +143,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     end
 
     def handle_call({:publish!, opts}, _, state) do
-      response = AbsintheClient.mutate!(state.client, opts)
+      response = AbsintheClient.mutate!(state.client, {opts[:query], opts[:variables]})
       comment_id = get_in(response.body, ~w(data repoComment id))
 
       {:reply, comment_id, state}
