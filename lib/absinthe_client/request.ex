@@ -197,8 +197,8 @@ defmodule AbsintheClient.Request do
   ## Examples
 
       iex> url = AbsintheClientTest.Endpoint.subscription_url()
-      iex> client = AbsintheClient.new(url: url)
-      iex> socket_name = AbsintheClient.Request.start_socket(client)
+      iex> req = Req.new(url: url) |> AbsintheClient.Request.attach()
+      iex> socket_name = AbsintheClient.Request.start_socket(req)
       iex> is_atom(socket_name)
       true
 

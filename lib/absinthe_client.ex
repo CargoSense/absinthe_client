@@ -1,55 +1,40 @@
 defmodule AbsintheClient do
   @moduledoc """
-  The high-level API.
+  The Absinthe GraphQL client.
 
   AbsintheClient is composed of three main pieces:
 
     * `AbsintheClient` - the high-level API (you're here!)
 
-    * `AbsintheClient.Request` - the `Req` plugin with subscription adapter
+    * `AbsintheClient.Request` - the `Req` plugin steps and subscription adapter
 
     * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
 
-  The high-level API is how most users of AbsintheClient will
+  The following examples demonstrate how most users of AbsintheClient will
   make GraphQL requests most of the time.
 
   ## Examples
 
-  Performing a `query` operation with `AbsintheClient.query!/2`:
+  Performing a `query` operation:
 
-      iex> AbsintheClient.query!("https://rickandmortyapi.com/graphql", "query { character(id:1){ name } }").body["data"]
+      iex> url = "https://rickandmortyapi.com/graphql"
+      iex> req = Req.new(url: url) |> AbsintheClient.Request.attach()
+      iex> Req.post!(req, operation: "query{ character(id:1){ name } }").body["data"]
       %{"character" => %{"name" => "Rick Sanchez"}}
 
-  Same, but by explicitly building a `Req.Request` struct first:
+  Same, but with variables:
+      iex> url = "https://rickandmortyapi.com/graphql"
+      iex> req = Req.new(url: url) |> AbsintheClient.Request.attach()
+      iex> Req.post!(req, operation: {"query($id: ID!){ character(id:$id){ name } }", %{id: 3}}).body["data"]
+      %{"character" => %{"name" => "Summer Smith"}}
 
-      iex> req = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
-      iex> AbsintheClient.query!(req, "query { character(id:1){ name } }").body["data"]
-      %{"character" => %{"name" => "Rick Sanchez"}}
-
-  Making a query with variables:
-
-      iex> AbsintheClient.query!("https://rickandmortyapi.com/graphql",
-      ...>   {"query($id: ID!) { character(id:$id){ name } }", %{id: 2}}
-      ...> ).body["data"]
-      %{"character" => %{"name" => "Morty Smith"}}
-
-  """
-
-  @doc """
-  Returns a new request struct with GraphQL steps.
-
-  ## Examples
-
-      iex> client = AbsintheClient.new()
-      iex> client.method
-      :post
+  AbsintheClient is composed mostly of `Req` steps. First we
+  made a new request struct and then we attached the plugin
+  steps with `attach/1`. Next, we made a `:post` request with
+  the query document and returned the data from the response
+  body.
 
   """
-  @spec new(options :: keyword) :: Req.Request.t()
-  def new(options \\ []) do
-    {absinthe_options, req_options} = Keyword.split(options, [:operation])
-    AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
-  end
 
   @doc """
   Runs a `mutation` operation.
@@ -71,7 +56,7 @@ defmodule AbsintheClient do
       iex> url = "https://graphqlzero.almansi.me/api"
       iex> doc = "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }"
       iex> variables = %{"input" => %{"title" => "My New Post", "body" => "This is the post body."}}
-      iex> client = AbsintheClient.new(url: url)
+      iex> client = Req.new(method: :post, url: url) |> AbsintheClient.Request.attach()
       iex> AbsintheClient.mutate!(client, {doc, variables}).body["data"]
       %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
 
@@ -99,7 +84,7 @@ defmodule AbsintheClient do
 
   with a Request:
 
-      client = AbsintheClient.new(url: url)
+      client = Req.new(url: url) |> AbsintheClient.Request.attach()
 
       AbsintheClient.subscribe!(client,
         {"subscription ItemSubscription($id: ID!) { itemSubscribe(id: $id){ likes } }", %{"id" => "some-item"}}
@@ -159,36 +144,23 @@ defmodule AbsintheClient do
 
   ## Examples
 
-  With options keyword list:
-
-      iex> {:ok, response} =
-      ...>   AbsintheClient.request(
-      ...>     url: "https://rickandmortyapi.com/graphql",
-      ...>     operation: {:query, "query($id: ID!) { character(id:$id){ name } }", %{id: 3}}
-      ...>   )
-      iex> response.status
-      200
-      iex> response.body["errors"]
-      nil
-      iex> response.body["data"]
-      %{"character" => %{"name" => "Summer Smith"}}
-
   With request struct:
 
-      iex> client = AbsintheClient.new(
-      ...>   url: "https://rickandmortyapi.com/graphql",
+      iex> req = Req.new(method: :post, url: "https://rickandmortyapi.com/graphql")
+      iex> req = AbsintheClient.Request.attach(req,
       ...>   operation: {:query, "query($id: ID!) { character(id:$id){ name } }", %{id: 3}}
       ...> )
-      iex> {:ok, response} = AbsintheClient.request(client)
+      iex> {:ok, response} = Req.request(req)
       iex> response.status
       200
 
   With request struct and options:
 
-      iex> client = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
+      iex> url = "https://rickandmortyapi.com/graphql"
+      iex> req = Req.new(method: :post, url: url) |> AbsintheClient.Request.attach()
       iex> {:ok, response} =
-      ...>   AbsintheClient.request(
-      ...>     client,
+      ...>   Req.request(
+      ...>     req,
       ...>     operation: {:query, "query($id: ID!) { character(id:$id){ name } }", %{id: 3}}
       ...>   )
       iex> response.status
@@ -203,7 +175,9 @@ defmodule AbsintheClient do
   end
 
   def request(options) do
-    request(AbsintheClient.new(options), [])
+    {absinthe_options, req_options} = Keyword.split(options, [:operation])
+    req = AbsintheClient.Request.attach(Req.new([method: :post] ++ req_options), absinthe_options)
+    request(req, [])
   end
 
   @doc """
@@ -243,8 +217,9 @@ defmodule AbsintheClient do
 
   ## Examples
 
-      iex> client = AbsintheClient.new(url: "https://rickandmortyapi.com/graphql")
-      iex> AbsintheClient.request!(client, operation: "query { character(id:1){ name } }").status
+      iex> req = Req.new(method: :post, url: "https://rickandmortyapi.com/graphql")
+      iex> req = AbsintheClient.Request.attach(req)
+      iex> Req.request!(req, operation: "query { character(id:1){ name } }").status
       200
   """
   @spec request!(Req.Request.t(), options :: keyword()) :: Req.Response.t()

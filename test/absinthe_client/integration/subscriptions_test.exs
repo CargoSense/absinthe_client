@@ -159,7 +159,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
   test "pushes a subscription to the server and receives a success reply",
        %{socket_url: socket_url} do
-    client = AbsintheClient.new(url: socket_url)
+    client = Req.new(method: :post, url: socket_url) |> AbsintheClient.Request.attach()
     pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     {:ok, ref} = CommentSubscriber.subscribe(pid, {:repo, "ELIXIR"})
@@ -171,13 +171,13 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
   test "forwards a subscription message to the subscribed caller",
        %{http_url: http_url, socket_url: socket_url} do
-    ws_client = AbsintheClient.new(url: socket_url)
+    ws_client = Req.new(method: :post, url: socket_url) |> AbsintheClient.Request.attach()
     subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
 
     repo = "ABSINTHE"
     {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
 
-    http_client = AbsintheClient.new(url: http_url)
+    http_client = Req.new(method: :post, url: http_url) |> AbsintheClient.Request.attach()
     publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
     comment_id = CommentPublisher.publish!(publisher_pid, repository: repo, commentary: "hi")
 
@@ -186,9 +186,9 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
   test "messages are not sent for cleared subscriptions",
        %{http_url: http_url, socket_url: socket_url, test: test} do
-    http_client = AbsintheClient.new(url: http_url)
+    http_client = Req.new(method: :post, url: http_url) |> AbsintheClient.Request.attach()
     publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
-    ws_client = AbsintheClient.new(url: socket_url)
+    ws_client = Req.new(method: :post, url: socket_url) |> AbsintheClient.Request.attach()
     subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
 
     # Subscribes and receives a message on the ABSINTHE repository topic.
@@ -239,10 +239,10 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
   test "rejoining active subscription on reconnect",
        %{http_url: http_url, socket_url: socket_url, test: test} do
-    http_client = AbsintheClient.new(url: http_url)
+    http_client = Req.new(method: :post, url: http_url) |> AbsintheClient.Request.attach()
     publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
 
-    ws_client = AbsintheClient.new(url: socket_url)
+    ws_client = Req.new(method: :post, url: socket_url) |> AbsintheClient.Request.attach()
     subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
 
     repo = "PHOENIX"

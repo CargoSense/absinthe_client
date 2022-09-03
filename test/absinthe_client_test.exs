@@ -73,7 +73,7 @@ defmodule AbsintheClientUnitTest do
   end
 
   test "mutate!/1 with a Request", %{test: test, url: url} do
-    request = AbsintheClient.new(url: url)
+    request = Req.new(method: :post, url: url) |> AbsintheClient.Request.attach()
 
     response =
       AbsintheClient.mutate!(
@@ -92,7 +92,7 @@ defmodule AbsintheClientUnitTest do
   end
 
   test "request!/2 with a Request", %{url: url} do
-    request = [url: url] |> AbsintheClient.new()
+    request = [method: :post, url: url] |> Req.new() |> AbsintheClient.Request.attach()
 
     assert AbsintheClient.request!(
              request,
@@ -137,7 +137,7 @@ defmodule AbsintheClientUnitTest do
     end
 
     test "subscribe!/1 with a Request", %{subscription_url: subscription_url} do
-      client = AbsintheClient.new(url: subscription_url)
+      client = Req.new(method: :post, url: subscription_url) |> AbsintheClient.Request.attach()
 
       response =
         AbsintheClient.subscribe!(
