@@ -16,7 +16,7 @@ defmodule AbsintheClient.RequestTest do
   test "KeyError when operation is not set" do
     assert_raise KeyError, "key :operation not found in: %{}", fn ->
       Req.new(method: :post)
-      |> AbsintheClient.Request.attach()
+      |> AbsintheClient.attach()
       |> Req.request!()
     end
   end
@@ -24,7 +24,7 @@ defmodule AbsintheClient.RequestTest do
   test "GET requests raise ArgumentError" do
     assert_raise ArgumentError, "only :post requests are currently supported, got: :get", fn ->
       Req.new()
-      |> AbsintheClient.Request.attach()
+      |> AbsintheClient.attach()
       |> Req.request!(operation: "query GetItem{ getItem{ id } }")
     end
   end
@@ -33,7 +33,7 @@ defmodule AbsintheClient.RequestTest do
     resp =
       [plug: EchoJSON]
       |> Req.new()
-      |> AbsintheClient.Request.attach()
+      |> AbsintheClient.attach()
       |> Req.post!(operation: "query GetItem{ getItem{ id } }")
 
     assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
@@ -41,7 +41,7 @@ defmodule AbsintheClient.RequestTest do
     resp =
       [plug: EchoJSON]
       |> Req.new()
-      |> AbsintheClient.Request.attach()
+      |> AbsintheClient.attach()
       |> Req.post!(operation: {"query GetItem{ getItem{ id } }", %{"foo" => "bar"}})
 
     assert resp.body == %{
@@ -52,7 +52,7 @@ defmodule AbsintheClient.RequestTest do
     resp =
       [plug: EchoJSON]
       |> Req.new()
-      |> AbsintheClient.Request.attach()
+      |> AbsintheClient.attach()
       |> Req.post!(operation: {"query GetItem{ getItem{ id } }", %{}})
 
     assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
@@ -64,7 +64,7 @@ defmodule AbsintheClient.RequestTest do
     {:ok, response} =
       [plug: EchoJSON, method: :post]
       |> Req.new()
-      |> AbsintheClient.Request.attach()
+      |> AbsintheClient.attach()
       |> Req.request(operation: query)
 
     assert response.private.operation ==

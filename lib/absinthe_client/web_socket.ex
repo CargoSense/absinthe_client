@@ -12,11 +12,9 @@ defmodule AbsintheClient.WebSocket do
 
   The WebSocket does the following:
 
-    * Manages subscriptions received from the
-      [`subscribe!/2`](`AbsintheClient.subscribe!/2`)
-      function, including automatically replaying
-      subscription requests in the event of a connection
-      loss.
+    * Manages subscriptions received, including automatically
+      replaying subscription requests in the event of a
+      connection loss.
 
     * Forwarding replies and subscription messages to the
       calling process.
@@ -37,8 +35,10 @@ defmodule AbsintheClient.WebSocket do
 
   First you make a subscription request to the server:
 
-      AbsintheClient.subscribe!("wss://example.com/",
-        query: "subscription { subscribeToAllThings { id name } }"
+      req = Req.new(url: "wss://example.com/")
+
+      Req.post!(req,
+        operation: {:subscription, "subscription { subscribeToAllThings { id name } }", nil}
       )
 
   ...then you await replies. For instance, on a `GenServer`:

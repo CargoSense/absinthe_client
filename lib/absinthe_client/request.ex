@@ -20,47 +20,11 @@ defmodule AbsintheClient.Request do
 
   Most queries can be performed like this:
 
-      AbsintheClient.query!(url, query: "query { allLinks { url } }").data
-      #=> %{ "allLinks" => %{ "url" => "http://graphql.org/" } }
-
-  If you want to compose AbsintheClient into an existing
-  request pipeline, you can add the plugin:
-
-      query = "query { allLinks { url } }"
-
-      req =
-        Req.new(method: :post, url: url)
-        |> AbsintheClient.Request.attach(query: query)
-
-      AbsintheClient.Request.run!(req).data
+      req = Req.new(url: url) |> AbsintheClient.attach()
+      Req.post!(req, query: "query { allLinks { url } }").data
       #=> %{ "allLinks" => %{ "url" => "http://graphql.org/" } }
 
   """
-
-  @doc """
-  Attaches the `AbsintheClient` steps to a given `request`.
-
-  ## Examples
-
-      iex> req = Req.new(method: :post, url: "ws://localhost")
-      iex> req = AbsintheClient.Request.attach(req, operation: "query{}")
-      iex> req.options.operation
-      "query{}"
-
-  """
-  @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
-  def attach(%Req.Request{} = request, options \\ []) do
-    request
-    |> Req.Request.register_options([:operation])
-    |> Req.Request.merge_options(options)
-    |> Req.Request.prepend_request_steps(
-      put_encode_operation: &AbsintheClient.Request.put_encode_operation/1,
-      put_ws_adapter: &AbsintheClient.Request.put_ws_adapter/1
-    )
-    |> Req.Request.append_response_steps(
-      put_response_operation: &AbsintheClient.Request.put_response_operation/1
-    )
-  end
 
   @doc """
   Makes an `AbsintheClient.Operation` for the request and encodes it.
@@ -189,15 +153,14 @@ defmodule AbsintheClient.Request do
   Starts a socket process for the caller and the given `request`.
 
   Usually you do not need to invoke this function directly,
-  since it is automatically invoked by the high-level
-  [`subscribe!/2`](`AbsintheClient.subscribe!/2`) function.
-  However in certain cases you may want to start the socket
-  process early.
+  since it is automatically invoked for subscription
+  operations. However in certain cases you may want to start
+  the socket process early.
 
   ## Examples
 
       iex> url = AbsintheClientTest.Endpoint.subscription_url()
-      iex> req = Req.new(url: url) |> AbsintheClient.Request.attach()
+      iex> req = Req.new(url: url) |> AbsintheClient.attach()
       iex> socket_name = AbsintheClient.Request.start_socket(req)
       iex> is_atom(socket_name)
       true

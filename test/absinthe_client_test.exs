@@ -33,8 +33,10 @@ defmodule AbsintheClientUnitTest do
   }
   """
 
-  test "query!/2 with a graphql query string", %{url: url} do
-    assert AbsintheClient.query!(url, @creator_query_graphql).body == %{
+  test "performing a query operation", %{url: url} do
+    req = Req.new(url: url) |> AbsintheClient.attach()
+
+    assert Req.post!(req, operation: @creator_query_graphql).body == %{
              "errors" => [
                %{
                  "locations" => [%{"column" => 11, "line" => 2}],
@@ -48,101 +50,39 @@ defmodule AbsintheClientUnitTest do
              ]
            }
 
-    response = AbsintheClient.query!(url, {@creator_query_graphql, %{"repository" => "PHOENIX"}})
+    response = Req.post!(req, operation: {@creator_query_graphql, %{"repository" => "PHOENIX"}})
 
     assert response.private.operation.operation_type == :query
     assert response.private.operation.query == @creator_query_graphql
     assert response.body == %{"data" => %{"creator" => %{"name" => "Chris McCord"}}}
   end
 
-  test "mutate!/1 with a url", %{url: url, test: test} do
-    response =
-      AbsintheClient.mutate!(
-        url,
-        {@repo_comment_mutation,
-         %{
-           "input" => %{
-             "repository" => "PHOENIX",
-             "commentary" => Atom.to_string(test)
-           }
-         }}
-      )
-
-    assert response.private.operation.operation_type == :mutation
-    assert response.body["data"]["repoComment"]["id"]
-  end
-
-  test "mutate!/1 with a Request", %{test: test, url: url} do
-    request = Req.new(method: :post, url: url) |> AbsintheClient.Request.attach()
+  test "performing a mutation operation", %{url: url, test: test} do
+    req = Req.new(url: url) |> AbsintheClient.attach()
 
     response =
-      AbsintheClient.mutate!(
-        request,
-        {@repo_comment_mutation,
-         %{
-           "input" => %{
-             "repository" => "PHOENIX",
-             "commentary" => Atom.to_string(test)
-           }
-         }}
-      )
-
-    assert response.private.operation.operation_type == :mutation
-    assert response.body["data"]["repoComment"]["id"]
-  end
-
-  test "request!/2 with a Request", %{url: url} do
-    request = [method: :post, url: url] |> Req.new() |> AbsintheClient.Request.attach()
-
-    assert AbsintheClient.request!(
-             request,
-             operation: "query { creator(repository: FOO) { name } }"
-           ).body ==
-             %{
-               "errors" => [
-                 %{
-                   "locations" => [
-                     %{
-                       "column" => 17,
-                       "line" => 1
-                     }
-                   ],
-                   "message" => "Argument \"repository\" has invalid value FOO."
-                 }
-               ]
+      Req.post!(req,
+        operation:
+          {:mutation, @repo_comment_mutation,
+           %{
+             "input" => %{
+               "repository" => "PHOENIX",
+               "commentary" => Atom.to_string(test)
              }
-
-    response =
-      AbsintheClient.request!(request,
-        operation: {@creator_query_graphql, %{"repository" => "PHOENIX"}}
+           }}
       )
 
-    assert response.private.operation.operation_type == :query
-    assert response.private.operation.query == @creator_query_graphql
-    assert response.body == %{"data" => %{"creator" => %{"name" => "Chris McCord"}}}
+    assert response.private.operation.operation_type == :mutation
+    assert response.body["data"]["repoComment"]["id"]
   end
 
-  describe "subscribe!/2 (WebSocket)" do
-    test "subscribe!/2 with a url", %{subscription_url: subscription_url} do
-      response =
-        AbsintheClient.subscribe!(
-          subscription_url,
-          {@repo_comment_subscription, %{"repository" => "PHOENIX"}}
-        )
-
-      assert response.private.operation.operation_type == :subscription
-      assert %{"data" => %{"subscriptionId" => subscription_id}} = response.body
-      assert subscription_id =~ "__absinthe__:doc:"
-      refute response.body["errors"]
-    end
-
-    test "subscribe!/1 with a Request", %{subscription_url: subscription_url} do
-      client = Req.new(method: :post, url: subscription_url) |> AbsintheClient.Request.attach()
+  describe "subscriptions (WebSocket)" do
+    test "performing a subscription operation", %{subscription_url: subscription_url} do
+      req = Req.new(url: subscription_url) |> AbsintheClient.attach()
 
       response =
-        AbsintheClient.subscribe!(
-          client,
-          {@repo_comment_subscription, %{"repository" => "PHOENIX"}}
+        Req.post!(req,
+          operation: {:subscription, @repo_comment_subscription, %{"repository" => "PHOENIX"}}
         )
 
       assert response.private.operation.operation_type == :subscription
