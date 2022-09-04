@@ -134,7 +134,7 @@ defmodule AbsintheClient.WebSocket do
           {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, Exception.t()}
   def push_sync(socket, %AbsintheClient.Operation{} = operation, timeout \\ 5000) do
     push = Push.new_doc(operation.query, operation.variables, operation.owner, operation.ref)
-    GenServer.call(socket, {:push_sync, push, timeout}, timeout)
+    GenServer.call(socket, {:push_sync, push, timeout}, timeout + 500)
   end
 
   @doc """
@@ -283,30 +283,15 @@ defmodule AbsintheClient.WebSocket do
   defp maybe_update_subscriptions(socket, _, _), do: socket
 
   @impl Slipstream
-  def handle_call({:push_sync, %Push{pid: pid, event: event} = push, timeout}, from, socket)
+  def handle_call({:push_sync, %Push{pid: pid, event: event} = push, timeout}, _from, socket)
       when is_pid(pid) and event == "doc" do
-    send_push_sync_attempt(push, from, 5, Kernel.trunc(timeout / 5))
-    {:noreply, socket}
-  end
-
-  @impl Slipstream
-  def handle_info({:push_sync_attempt, %Push{}, _from, tries, _reply_timeout}, socket)
-      when tries < 1 do
-    {:stop, {:shutdown, :not_joined}, socket}
-  end
-
-  def handle_info({:push_sync_attempt, %Push{} = push, from, tries, reply_timeout}, socket) do
     case push_message(socket, push) do
       {:ok, ref} ->
-        result = Slipstream.await_reply(ref, reply_timeout)
-        GenServer.reply(from, result)
+        result = Slipstream.await_reply(ref, timeout)
+        {:reply, result, maybe_update_subscriptions(socket, push, result)}
 
-        {:noreply, maybe_update_subscriptions(socket, push, result)}
-
-      {:error, :not_joined} ->
-        send_push_sync_attempt(push, from, tries - 1, reply_timeout)
-
-        {:noreply, socket}
+      {:error, :not_joined} = error ->
+        {:reply, error, socket}
     end
   end
 
@@ -375,10 +360,6 @@ defmodule AbsintheClient.WebSocket do
 
   defp push_message(socket, op) do
     push(socket, @control_topic, op.event, op.params)
-  end
-
-  defp send_push_sync_attempt(push, from, tries, reply_timeout) do
-    Process.send_after(self(), {:push_sync_attempt, push, from, tries, reply_timeout}, 150)
   end
 
   defp enqueue_active_subscriptions(socket) do

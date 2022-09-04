@@ -80,6 +80,8 @@ defmodule AbsintheClientUnitTest do
     test "performing a subscription operation", %{subscription_url: subscription_url} do
       req = Req.new(url: subscription_url) |> AbsintheClient.attach()
 
+      _socket_name = AbsintheClient.connect(req)
+
       response =
         Req.post!(req,
           operation: {:subscription, @repo_comment_subscription, %{"repository" => "PHOENIX"}}
