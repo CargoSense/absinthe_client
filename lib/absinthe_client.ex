@@ -17,25 +17,61 @@ defmodule AbsintheClient do
 
   Performing a `query` operation:
 
-      iex> req = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
-      iex> Req.post!(req, operation: "query{ character(id:1){ name } }").body["data"]
+      iex> Req.post!(
+      ...>   AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql")),
+      ...>   operation: \"""
+      ...>     query {
+      ...>       character(id: 1) {
+      ...>         name
+      ...>       }
+      ...>     }
+      ...>   \"""
+      ...> ).body["data"]
       %{"character" => %{"name" => "Rick Sanchez"}}
 
   Same, but with variables:
-      iex> url = "https://rickandmortyapi.com/graphql"
-      iex> req = AbsintheClient.attach(Req.new(url: url))
-      iex> query = "query($id: ID!){ character(id:$id){ name } }"
-      iex> Req.post!(req, operation: {query, %{id: 3}}).body["data"]
+
+      iex> Req.post!(
+      ...>   AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql")),
+      ...>   operation: {
+      ...>     \"""
+      ...>     query($id: ID!) {
+      ...>       character(id: $id) {
+      ...>         name
+      ...>       }
+      ...>     }
+      ...>     \""",
+      ...>     %{
+      ...>       id: 3
+      ...>     }
+      ...>   }
+      ...> ).body["data"]
       %{"character" => %{"name" => "Summer Smith"}}
 
   Performing a `mutation` operation:
 
-      iex> url = "https://graphqlzero.almansi.me/api"
-      iex> req = AbsintheClient.attach(Req.new(method: :post, url: url))
-      iex> query = "mutation ($input: CreatePostInput!){ createPost(input: $input) { title body } }"
-      iex> variables = %{"input" => %{"title" => "My New Post", "body" => "This is the post body."}}
-      iex> Req.post!(req, operation: {:mutation, query, variables}).body["data"]
-      %{"createPost" => %{"title" => "My New Post", "body" => "This is the post body."}}
+      iex> Req.post!(
+      ...>   AbsintheClient.attach(Req.new(url: "https://graphqlzero.almansi.me/api")),
+      ...>   operation:
+      ...>     {:mutation,
+      ...>      \"""
+      ...>      mutation ($input: CreatePostInput!){
+      ...>        createPost(input: $input){
+      ...>          title
+      ...>          body
+      ...>        }
+      ...>      }
+      ...>      \""",
+      ...>      %{
+      ...>        "input" =>
+      ...>          %{
+      ...>            "title" => "My New Post",
+      ...>            "body" => "This is the post body."
+      ...>          }
+      ...>      }
+      ...>     }
+      ...> ).body["data"]
+      %{"createPost" => %{"body" => "This is the post body.", "title" => "My New Post"}}
 
   ## Subscriptions
 
