@@ -134,7 +134,7 @@ defmodule AbsintheClient.Request do
   """
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
     operation = request.private.operation
-    socket_name = AbsintheClient.Request.start_socket(operation.owner, request)
+    socket_name = AbsintheClient.connect(operation.owner, request)
 
     operation_ref = make_ref()
     operation = %AbsintheClient.Operation{operation | ref: operation_ref}
@@ -147,49 +147,5 @@ defmodule AbsintheClient.Request do
       {:ok, payload} ->
         {new_request, Req.Response.new(body: %{"data" => payload})}
     end
-  end
-
-  @doc """
-  Starts a socket process for the caller and the given `request`.
-
-  Usually you do not need to invoke this function directly,
-  since it is automatically invoked for subscription
-  operations. However in certain cases you may want to start
-  the socket process early.
-
-  ## Examples
-
-      iex> url = AbsintheClientTest.Endpoint.subscription_url()
-      iex> req = Req.new(url: url) |> AbsintheClient.attach()
-      iex> socket_name = AbsintheClient.Request.start_socket(req)
-      iex> is_atom(socket_name)
-      true
-
-  """
-  @spec start_socket(request :: Req.Request.t()) :: atom()
-  @spec start_socket(owner :: pid(), request :: Req.Request.t()) :: atom()
-  def start_socket(owner \\ self(), %Req.Request{} = request) do
-    name = custom_socket_name(owner: owner, url: request.url)
-
-    case DynamicSupervisor.start_child(
-           AbsintheClient.SocketSupervisor,
-           {AbsintheClient.WebSocket, {owner, name: name, uri: request.url}}
-         ) do
-      {:ok, _} ->
-        name
-
-      {:error, {:already_started, _}} ->
-        name
-    end
-  end
-
-  defp custom_socket_name(options) do
-    name =
-      options
-      |> :erlang.term_to_binary()
-      |> :erlang.md5()
-      |> Base.url_encode64(padding: false)
-
-    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
   end
 end

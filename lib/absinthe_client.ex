@@ -1,5 +1,5 @@
 defmodule AbsintheClient do
-  @moduledoc """
+  @moduledoc ~S"""
   The Absinthe GraphQL client.
 
   AbsintheClient is composed of three main pieces:
@@ -39,13 +39,43 @@ defmodule AbsintheClient do
 
   ## Subscriptions
 
-  TODO
+  > #### Absinthe subscriptions required! {: .tip}
+  >
+  > AbsintheClient works with servers using
+  > [Absinthe subscriptions](https://hexdocs.pm/absinthe/subscriptions.html).
+  > Support for other GraphQL WebSocket protocols is not
+  > planned.
 
-      doc = {"subscription ItemSubscription($id: ID!) { itemSubscribe(id: $id){ likes } }", %{"id" => "some-item"}}
+  Performing a `subscription` operation:
 
-      req = Req.new(url: url) |> AbsintheClient.attach()
+      Req.post!(
+        AbsintheClient.attach(Req.new(url: "ws://localhost:8001/socket/websocket")),
+        operation:
+          {:subscription,
+           \"""
+           subscription {
+             subscribeToAllThings {
+               id
+               name
+             }
+           }
+           \"""}
+      )
 
-      Req.post!(req, operation: doc)
+  Receiving the subscription data, for example on a `GenServer`:
+
+      def handle_info(%AbsintheClient.Subscription.Data{result: result}, state) do
+        case result do
+          %{"errors" => errors} ->
+            raise "Received result with errors, got: #{inspect(result["errors"])}"
+
+          %{"data" => data} ->
+            name = get_in(result, ~w(data subscribeToAllThings name)) do
+            IO.puts("Received new thing named #{name}")
+
+            {:noreply, state}
+        end
+      end
   """
 
   @doc """
@@ -89,5 +119,51 @@ defmodule AbsintheClient do
     |> Req.Request.append_response_steps(
       put_response_operation: &AbsintheClient.Request.put_response_operation/1
     )
+  end
+
+  @doc """
+  Connects the caller to a WebSocket process for the given `request`.
+
+  Usually you do not need to invoke this function directly as
+  it is automatically invoked for subscription operations.
+  However in certain cases you may want to start the socket
+  process early in order to ensure that it is fully connected
+  before you start pushing messages.
+
+  Only one socket process is created per caller per request URI.
+
+  ## Examples
+
+      iex> req = AbsintheClient.attach(Req.new(url: AbsintheClientTest.Endpoint.subscription_url()))
+      iex> socket_name = AbsintheClient.connect(req)
+      iex> is_atom(socket_name)
+      true
+
+  """
+  @spec connect(request :: Req.Request.t()) :: atom()
+  @spec connect(owner :: pid(), request :: Req.Request.t()) :: atom()
+  def connect(owner \\ self(), %Req.Request{} = request) do
+    name = custom_socket_name(owner: owner, url: request.url)
+
+    case DynamicSupervisor.start_child(
+           AbsintheClient.SocketSupervisor,
+           {AbsintheClient.WebSocket, {owner, name: name, uri: request.url}}
+         ) do
+      {:ok, _} ->
+        name
+
+      {:error, {:already_started, _}} ->
+        name
+    end
+  end
+
+  defp custom_socket_name(options) do
+    name =
+      options
+      |> :erlang.term_to_binary()
+      |> :erlang.md5()
+      |> Base.url_encode64(padding: false)
+
+    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
   end
 end

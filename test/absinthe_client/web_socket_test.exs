@@ -1,6 +1,8 @@
-defmodule AbsintheClient.SocketTest do
+defmodule AbsintheClient.WebSocketTest do
   use ExUnit.Case, async: false
   use Slipstream.SocketTest
+
+  doctest AbsintheClient.WebSocket
 
   @control_topic "__absinthe__:control"
 

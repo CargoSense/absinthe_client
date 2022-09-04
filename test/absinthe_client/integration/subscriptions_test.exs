@@ -21,7 +21,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     ## Private
 
     def init({client, parent}) do
-      socket_name = AbsintheClient.Request.start_socket(client)
+      socket_name = AbsintheClient.connect(client)
 
       {
         :ok,

@@ -1,6 +1,5 @@
 defmodule AbsintheClient.Integration.WebSocketTest do
   use ExUnit.Case, async: true
-  alias AbsintheClientTest.Endpoint
 
   defmodule Listener do
     use GenServer
@@ -11,14 +10,8 @@ defmodule AbsintheClient.Integration.WebSocketTest do
       GenServer.call(pid, {:call, fun})
     end
 
-    def init(socket_url) do
-      {:ok, socket_pid} =
-        DynamicSupervisor.start_child(
-          AbsintheClient.SocketSupervisor,
-          {AbsintheClient.WebSocket, {self(), uri: socket_url}}
-        )
-
-      {:ok, socket_pid}
+    def init(%Req.Request{} = req) do
+      {:ok, AbsintheClient.connect(req)}
     end
 
     def handle_call({:call, fun}, _, state) when is_function(fun, 1) do
@@ -27,9 +20,7 @@ defmodule AbsintheClient.Integration.WebSocketTest do
   end
 
   setup do
-    http_port = Endpoint.http_port()
-    socket_url = "ws://localhost:#{http_port}/socket/websocket"
-    {:ok, http_port: http_port, socket_url: socket_url}
+    {:ok, socket_url: AbsintheClientTest.Endpoint.subscription_url()}
   end
 
   test "push/3 pushes a doc over the socket and receives a reply", %{socket_url: uri, test: ref} do
@@ -111,7 +102,7 @@ defmodule AbsintheClient.Integration.WebSocketTest do
   end
 
   test "monitors parent and exits on down", %{socket_url: socket_url} do
-    listener_pid = start_supervised!({Listener, socket_url})
+    listener_pid = start_supervised!({Listener, Req.new(url: socket_url)})
 
     socket_pid =
       Listener.call(listener_pid, fn socket_pid ->
@@ -122,6 +113,6 @@ defmodule AbsintheClient.Integration.WebSocketTest do
 
     Process.exit(listener_pid, :shutdown)
 
-    assert_receive {:DOWN, ^socket_monitor, :process, ^socket_pid, :shutdown}
+    assert_receive {:DOWN, ^socket_monitor, :process, _, :shutdown}
   end
 end
