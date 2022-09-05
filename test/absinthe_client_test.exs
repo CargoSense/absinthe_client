@@ -36,7 +36,7 @@ defmodule AbsintheClientUnitTest do
   test "performing a query operation", %{url: url} do
     req = Req.new(url: url) |> AbsintheClient.attach()
 
-    assert Req.post!(req, operation: @creator_query_graphql).body == %{
+    assert Req.post!(req, query: @creator_query_graphql).body == %{
              "errors" => [
                %{
                  "locations" => [%{"column" => 11, "line" => 2}],
@@ -50,10 +50,9 @@ defmodule AbsintheClientUnitTest do
              ]
            }
 
-    response = Req.post!(req, operation: {@creator_query_graphql, %{"repository" => "PHOENIX"}})
+    response =
+      Req.post!(req, query: @creator_query_graphql, variables: %{"repository" => "PHOENIX"})
 
-    assert response.private.operation.operation_type == :query
-    assert response.private.operation.query == @creator_query_graphql
     assert response.body == %{"data" => %{"creator" => %{"name" => "Chris McCord"}}}
   end
 
@@ -62,17 +61,15 @@ defmodule AbsintheClientUnitTest do
 
     response =
       Req.post!(req,
-        operation:
-          {:mutation, @repo_comment_mutation,
-           %{
-             "input" => %{
-               "repository" => "PHOENIX",
-               "commentary" => Atom.to_string(test)
-             }
-           }}
+        query: @repo_comment_mutation,
+        variables: %{
+          "input" => %{
+            "repository" => "PHOENIX",
+            "commentary" => Atom.to_string(test)
+          }
+        }
       )
 
-    assert response.private.operation.operation_type == :mutation
     assert response.body["data"]["repoComment"]["id"]
   end
 
@@ -83,14 +80,15 @@ defmodule AbsintheClientUnitTest do
       _socket_name = AbsintheClient.connect(req)
 
       response =
-        Req.post!(req,
-          operation: {:subscription, @repo_comment_subscription, %{"repository" => "PHOENIX"}}
+        AbsintheClient.subscribe!(
+          req,
+          @repo_comment_subscription,
+          variables: %{"repository" => "PHOENIX"}
         )
 
-      assert response.private.operation.operation_type == :subscription
-      assert %{"data" => %{"subscriptionId" => subscription_id}} = response.body
+      assert %{id: subscription_id, ref: ref} = response
       assert subscription_id =~ "__absinthe__:doc:"
-      refute response.body["errors"]
+      refute ref
     end
   end
 end

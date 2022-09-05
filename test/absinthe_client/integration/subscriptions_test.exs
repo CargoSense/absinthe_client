@@ -53,31 +53,28 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     end
 
     def handle_call({:subscribe, {:repo, name}}, _, state) do
-      response =
-        Req.post!(
+      subscription =
+        AbsintheClient.subscribe!(
           state.client,
-          operation:
-            {:subscription,
-             """
-             subscription RepoCommentSubscription($repository: Repository!){
-               repoCommentSubscribe(repository: $repository){
-                 id
-                 commentary
-               }
-             }
-             """, %{"repository" => name}}
+          """
+          subscription RepoCommentSubscription($repository: Repository!){
+            repoCommentSubscribe(repository: $repository){
+              id
+              commentary
+            }
+          }
+          """,
+          variables: %{"repository" => name},
+          ws_reply_ref: "subscription-#{System.unique_integer()}"
         )
 
-      %{
-        body: %{"data" => %{"subscriptionId" => subscription_id}},
-        private: %{operation: operation}
-      } = response
+      %{id: subscription_id, ref: ref} = subscription
 
-      send(state.parent, {:subscription_reply, operation.ref, subscription_id})
+      send(state.parent, {:subscription_reply, ref, subscription_id})
 
-      new_subs = Map.put(state.subscription_id_to_ref, subscription_id, operation.ref)
+      new_subs = Map.put(state.subscription_id_to_ref, subscription_id, ref)
 
-      {:reply, {:ok, operation.ref}, %{state | subscription_id_to_ref: new_subs}}
+      {:reply, {:ok, ref}, %{state | subscription_id_to_ref: new_subs}}
     end
 
     def handle_call(:trigger_disconnect, _from, state) do
@@ -145,7 +142,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     end
 
     def handle_call({:publish!, opts}, _, state) do
-      response = Req.post!(state.client, operation: {opts[:query], opts[:variables]})
+      response = Req.post!(state.client, query: opts[:query], variables: opts[:variables])
       comment_id = get_in(response.body, ~w(data repoComment id))
 
       {:reply, comment_id, state}

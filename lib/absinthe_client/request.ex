@@ -27,86 +27,73 @@ defmodule AbsintheClient.Request do
   """
 
   @doc """
-  Makes an `AbsintheClient.Operation` for the request and encodes it.
+  Encodes the GraphQL operation.
+
+  ## Request Options
+
+    * `:query` - Required. A GraphQL document with a single
+      operation.
+
+    * `:variables` - An optional map of input values.
+
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
+      iex> Req.post!(client, query: "query{ character(id: 1){ name } }").body["data"]
+      %{"character" => %{"name" => "Rick Sanchez"}}
+
+      iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
+      iex> Req.post!(client,
+      ...>   query: "query($id: ID!){ character(id: $id){ name } }",
+      ...>   variables: %{id: 2}
+      ...> ).body["data"]
+      %{"character" => %{"name" => "Morty Smith"}}
   """
-  def put_encode_operation(%Req.Request{} = request) do
-    # remove once we support :get request formatting
-    unless request.method == :post do
-      raise ArgumentError,
-            "only :post requests are currently supported, got: #{inspect(request.method)}"
-    end
+  @doc step: :request
+  def encode_operation(%Req.Request{} = request) do
+    query = Map.fetch!(request.options, :query)
+    variables = Map.get(request.options, :variables, %{})
 
-    with {:ok, operation} <- Map.fetch(request.options, :operation) do
-      req_with_operation =
-        case operation do
-          # "query ($id: ID!) { allLinks(id: $id) { url } }"
-          doc when is_binary(doc) ->
-            put_operation(request, {:query, doc, nil})
-
-          # {"query ($id: ID!) { allLinks(id: $id) { url } }", %{id: 1}}
-          {doc, vars} when is_binary(doc) and is_map(vars) ->
-            put_operation(request, {:query, doc, vars})
-
-          # {:query, "query { allLinks { url }}"}
-          {kind, doc}
-          when kind in [:query, :mutation, :subscription] and
-                 is_binary(doc) ->
-            put_operation(request, {kind, doc, nil})
-
-          # {:query, {"query ($id: ID!) { allLinks(id: $id) { url } }", %{id: 1}}}
-          {kind, {doc, vars}}
-          when kind in [:query, :mutation, :subscription] and
-                 is_binary(doc) and is_map(vars) ->
-            put_operation(request, {kind, doc, vars})
-
-          # {:query, "query ($id: ID!) { allLinks(id: $id) { url } }", %{id: 1}}
-          {kind, doc, vars} = operation
-          when kind in [:query, :mutation, :subscription] and
-                 is_binary(doc) and is_map(vars) ->
-            put_operation(request, operation)
-        end
-
-      # todo: add support for :get request formatting
-      %{req_with_operation | body: Jason.encode_to_iodata!(req_with_operation.private.operation)}
-      |> Req.Request.put_new_header("content-type", "application/json")
-      |> Req.Request.put_new_header("accept", "application/json")
-    else
-      _ -> raise KeyError, key: :operation, term: request.options
-    end
+    encode_operation(request, request.method, query, variables)
   end
 
-  defp put_operation(%Req.Request{} = req, {op_type, doc, variables}) do
-    Req.Request.put_private(
-      req,
-      :operation,
-      %AbsintheClient.Operation{
-        owner: self(),
-        operation_type: op_type,
-        query: doc,
-        variables: variables
-      }
-    )
+  defp encode_operation(request, :post, query, variables) do
+    encode_json(request, %{query: query, variables: variables})
   end
 
-  @doc """
-  Copies the operation from the request to the response.
-  """
-  def put_response_operation({%Req.Request{} = request, %Req.Response{} = response}) do
-    {request, Req.Response.put_private(response, :operation, request.private.operation)}
+  defp encode_operation(request, AbsintheClient.WebSocket, query, variables) do
+    encode_json(request, %{query: query, variables: variables})
+  end
+
+  # remove once we support :get request formatting
+  defp encode_operation(_request, method, _query, _variables) do
+    raise ArgumentError,
+          "invalid request method, expected :post, got: #{inspect(method)}"
+  end
+
+  defp encode_json(request, body) do
+    %{request | body: Jason.encode_to_iodata!(body)}
+    |> Req.Request.put_new_header("content-type", "application/json")
+    |> Req.Request.put_new_header("accept", "application/json")
   end
 
   @doc """
   Overrides the Req adapter for subscription requests.
 
-  See `run_absinthe_ws_adapter/1`.
+  If set, the adapter is overriden with
+  `run_absinthe_ws_adapter/1`.
 
   """
+  @doc step: :request
   def put_ws_adapter(%Req.Request{} = request) do
-    case Req.Request.get_private(request, :operation) do
-      %AbsintheClient.Operation{operation_type: :subscription} ->
+    case Map.fetch(request.options, :ws_adapter) do
+      :error ->
         %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
 
-      _ ->
+      {:ok, true} ->
+        %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
+
+      {:ok, false} ->
         request
     end
   end
@@ -133,19 +120,19 @@ defmodule AbsintheClient.Request do
 
   """
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    operation = request.private.operation
-    socket_name = AbsintheClient.connect(operation.owner, request)
+    socket_name = AbsintheClient.connect(self(), request)
 
-    operation_ref = make_ref()
-    operation = %AbsintheClient.Operation{operation | ref: operation_ref}
-    new_request = Req.Request.put_private(request, :operation, operation)
+    query = Map.fetch!(request.options, :query)
+    variables = Map.get(request.options, :variables, %{})
+    ref = Map.get(request.options, :ws_reply_ref, nil)
 
-    case AbsintheClient.WebSocket.push_sync(socket_name, operation) do
+    case AbsintheClient.WebSocket.push_sync(socket_name, query, variables, ref) do
       {:error, %{__exception__: true} = exception} ->
-        {new_request, exception}
+        {request, exception}
 
       {:ok, payload} ->
-        {new_request, Req.Response.new(body: %{"data" => payload})}
+        {request,
+         Req.Response.new(body: %{"data" => payload}, private: %{AbsintheClient.WebSocket => ref})}
     end
   end
 end

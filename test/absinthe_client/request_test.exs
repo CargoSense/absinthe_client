@@ -13,8 +13,8 @@ defmodule AbsintheClient.RequestTest do
     end
   end
 
-  test "KeyError when operation is not set" do
-    assert_raise KeyError, "key :operation not found in: %{}", fn ->
+  test "KeyError when the query option is not set" do
+    assert_raise KeyError, "key :query not found in: %{}", fn ->
       Req.new(method: :post)
       |> AbsintheClient.attach()
       |> Req.request!()
@@ -22,10 +22,10 @@ defmodule AbsintheClient.RequestTest do
   end
 
   test "GET requests raise ArgumentError" do
-    assert_raise ArgumentError, "only :post requests are currently supported, got: :get", fn ->
+    assert_raise ArgumentError, "invalid request method, expected :post, got: :get", fn ->
       Req.new()
       |> AbsintheClient.attach()
-      |> Req.request!(operation: "query GetItem{ getItem{ id } }")
+      |> Req.request!(query: "query GetItem{ getItem{ id } }")
     end
   end
 
@@ -34,40 +34,19 @@ defmodule AbsintheClient.RequestTest do
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> Req.post!(operation: "query GetItem{ getItem{ id } }")
+      |> Req.post!(query: "query GetItem{ getItem{ id } }")
 
-    assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
+    assert resp.body == %{"query" => "query GetItem{ getItem{ id } }", "variables" => %{}}
 
     resp =
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> Req.post!(operation: {"query GetItem{ getItem{ id } }", %{"foo" => "bar"}})
+      |> Req.post!(query: "query GetItem{ getItem{ id } }", variables: %{"foo" => "bar"})
 
     assert resp.body == %{
              "query" => "query GetItem{ getItem{ id } }",
              "variables" => %{"foo" => "bar"}
            }
-
-    resp =
-      [plug: EchoJSON]
-      |> Req.new()
-      |> AbsintheClient.attach()
-      |> Req.post!(operation: {"query GetItem{ getItem{ id } }", %{}})
-
-    assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
-  end
-
-  test "response contains the operation" do
-    query = "query GetItem{ getItem{ id } }"
-
-    {:ok, response} =
-      [plug: EchoJSON, method: :post]
-      |> Req.new()
-      |> AbsintheClient.attach()
-      |> Req.request(operation: query)
-
-    assert response.private.operation ==
-             %AbsintheClient.Operation{operation_type: :query, query: query, owner: self()}
   end
 end

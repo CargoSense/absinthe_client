@@ -128,12 +128,14 @@ defmodule AbsintheClient.WebSocket do
   """
   @spec push_sync(
           socket :: GenServer.server(),
-          operation :: AbsintheSocket.Operation.t(),
+          query :: String.t(),
+          variables :: nil | map(),
+          ref :: nil | term(),
           timeout :: non_neg_integer()
         ) ::
           {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, Exception.t()}
-  def push_sync(socket, %AbsintheClient.Operation{} = operation, timeout \\ 5000) do
-    push = Push.new_doc(operation.query, operation.variables, operation.owner, operation.ref)
+  def push_sync(socket, query, vars, ref, timeout \\ 5000) do
+    push = Push.new_doc(query, vars, self(), ref)
     GenServer.call(socket, {:push_sync, push, timeout}, timeout + 500)
   end
 
@@ -290,8 +292,8 @@ defmodule AbsintheClient.WebSocket do
         result = Slipstream.await_reply(ref, timeout)
         {:reply, result, maybe_update_subscriptions(socket, push, result)}
 
-      {:error, :not_joined} = error ->
-        {:reply, error, socket}
+      {:error, :not_joined} ->
+        {:reply, {:error, %AbsintheClient.NotJoinedError{}}, socket}
     end
   end
 

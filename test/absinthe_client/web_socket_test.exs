@@ -119,25 +119,6 @@ defmodule AbsintheClient.WebSocketTest do
     assert_receive %AbsintheClient.Subscription.Data{id: ^resub_id, result: ^expected_result}
   end
 
-  describe "push_sync/3" do
-    test "returns error when control topic not joined" do
-      pid =
-        start_supervised!(
-          {AbsintheClient.WebSocket, {self(), uri: "ws://localhost", test_mode?: true}}
-        )
-
-      :ok = accept_connect(pid)
-
-      op = %AbsintheClient.Operation{
-        owner: self(),
-        query: "msg:#{System.unique_integer()}"
-      }
-
-      assert AbsintheClient.WebSocket.push_sync(pid, op) == {:error, :not_joined}
-      assert_join(@control_topic, %{}, :ok)
-    end
-  end
-
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
     client_opts = Keyword.put_new(opts, :test_mode?, true)
     client_pid = start_supervised!({AbsintheClient.WebSocket, {self(), client_opts}})

@@ -17,59 +17,32 @@ defmodule AbsintheClient do
 
   Performing a `query` operation:
 
-      iex> Req.post!(
-      ...>   AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql")),
-      ...>   operation: \"""
-      ...>     query {
-      ...>       character(id: 1) {
-      ...>         name
-      ...>       }
-      ...>     }
-      ...>   \"""
-      ...> ).body["data"]
+      iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
+      iex> Req.post!(client, query: "query { character(id: 1) { name } }").body["data"]
       %{"character" => %{"name" => "Rick Sanchez"}}
 
-  Same, but with variables:
+  Performing a `query` operation with variables:
 
+      iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
       iex> Req.post!(
-      ...>   AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql")),
-      ...>   operation: {
-      ...>     \"""
-      ...>     query($id: ID!) {
-      ...>       character(id: $id) {
-      ...>         name
-      ...>       }
-      ...>     }
-      ...>     \""",
-      ...>     %{
-      ...>       id: 3
-      ...>     }
-      ...>   }
+      ...>   client,
+      ...>   query: "query($id: ID!) { character(id: $id) { name } }",
+      ...>   variables: %{id: 3}
       ...> ).body["data"]
       %{"character" => %{"name" => "Summer Smith"}}
 
   Performing a `mutation` operation:
 
+      iex> client = AbsintheClient.attach(Req.new(url: "https://graphqlzero.almansi.me/api"))
       iex> Req.post!(
-      ...>   AbsintheClient.attach(Req.new(url: "https://graphqlzero.almansi.me/api")),
-      ...>   operation:
-      ...>     {:mutation,
-      ...>      \"""
-      ...>      mutation ($input: CreatePostInput!){
-      ...>        createPost(input: $input){
-      ...>          title
-      ...>          body
-      ...>        }
-      ...>      }
-      ...>      \""",
-      ...>      %{
-      ...>        "input" =>
-      ...>          %{
-      ...>            "title" => "My New Post",
-      ...>            "body" => "This is the post body."
-      ...>          }
-      ...>      }
+      ...>   client,
+      ...>   query: "mutation($input: CreatePostInput!){ createPost(input: $input){ body title }}",
+      ...>   variables: %{
+      ...>     "input" => %{
+      ...>       "title" => "My New Post",
+      ...>       "body" => "This is the post body."
       ...>     }
+      ...>   }
       ...> ).body["data"]
       %{"createPost" => %{"body" => "This is the post body.", "title" => "My New Post"}}
 
@@ -84,19 +57,15 @@ defmodule AbsintheClient do
 
   Performing a `subscription` operation:
 
-      Req.post!(
-        AbsintheClient.attach(Req.new(url: "ws://localhost:8001/socket/websocket")),
-        operation:
-          {:subscription,
-           \"""
-           subscription {
-             subscribeToAllThings {
-               id
-               name
-             }
-           }
-           \"""}
-      )
+      iex> client = AbsintheClient.attach(Req.new(url: "ws://localhost:8001/socket/websocket"))
+      iex> subscription =
+      ...>   AbsintheClient.subscribe!(
+      ...>     client,
+      ...>     "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
+      ...>     variables: %{"repository" => "ELIXIR"}
+      ...>   )
+      iex> String.starts_with?(subscription.id, "__absinthe__")
+      true
 
   Receiving the subscription data, for example on a `GenServer`:
 
@@ -117,43 +86,20 @@ defmodule AbsintheClient do
   @doc """
   Attaches the `AbsintheClient` steps to a given `request`.
 
-  ## Request options
+  ## Options
 
-    * `:operation` - The GraphQL document. It may be a
-      `string`, a tuple of `{string, map}`, or a tuple of
-      `{atom, string, map}`.
+    * `:query` - The GraphQL document containing a single operation.
 
-  ## Examples
-
-      iex> req = Req.new(method: :post, url: "ws://localhost")
-      iex> req = AbsintheClient.attach(req, operation: "query{}")
-      iex> req.options.operation
-      "query{}"
-
-      iex> op = {"query{}", %{"id" => 1}}
-      iex> req = Req.new(method: :post, url: "ws://localhost")
-      iex> req = AbsintheClient.attach(req, operation: op)
-      iex> req.options.operation
-      {"query{}", %{"id" => 1}}
-
-      iex> op = {:subscription, "query{}", %{"id" => 1}}
-      iex> req = Req.new(method: :post, url: "ws://localhost")
-      iex> req = AbsintheClient.attach(req, operation: op)
-      iex> req.options.operation
-      {:subscription, "query{}", %{"id" => 1}}
+    * `:variables` - A map of input values for the operation.
 
   """
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
     request
-    |> Req.Request.register_options([:operation])
+    |> Req.Request.register_options([:query, :variables])
     |> Req.Request.merge_options(options)
     |> Req.Request.prepend_request_steps(
-      put_encode_operation: &AbsintheClient.Request.put_encode_operation/1,
-      put_ws_adapter: &AbsintheClient.Request.put_ws_adapter/1
-    )
-    |> Req.Request.append_response_steps(
-      put_response_operation: &AbsintheClient.Request.put_response_operation/1
+      encode_operation: &AbsintheClient.Request.encode_operation/1
     )
   end
 
@@ -202,4 +148,74 @@ defmodule AbsintheClient do
 
     Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
   end
+
+  @doc """
+  Performs a `subscription` operation over a WebSocket.
+
+  ## WebSocket options
+
+    * `:ws_reply_ref` - A unique term to track async replies.
+      If set, the caller will receive latent replies from the
+      caller, for instance when a subscription reconnects.
+      Defaults to `nil`.
+
+  ## Retries
+
+  Note that due to the async nature of the WebSocket
+  connection process, this function will retry the message
+  if an `AbsintheClient.NotJoinedError` is returned.
+
+  Consult the `Req.request/1` retry options for more information.
+
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(url: "ws://localhost:8001/socket/websocket"))
+      iex> AbsintheClient.subscribe!(
+      ...>   client,
+      ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
+      ...>   variables: %{"repository" => "ELIXIR"}
+      ...> ).ref
+      nil
+
+      iex> client = AbsintheClient.attach(Req.new(url: "ws://localhost:8001/socket/websocket"))
+      iex> AbsintheClient.subscribe!(
+      ...>   client,
+      ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
+      ...>   variables: %{"repository" => "ELIXIR"},
+      ...>   ws_reply_ref: "my-subscription-ref"
+      ...> ).ref
+      "my-subscription-ref"
+
+  """
+  @spec subscribe!(Req.Request.t(), String.t(), keyword) :: %{
+          id: String.t(),
+          ref: reference()
+        }
+  def subscribe!(request, query, options \\ [])
+
+  def subscribe!(%Req.Request{} = request, query, options) do
+    response =
+      %{request | method: AbsintheClient.WebSocket}
+      |> Req.Request.register_options([:ws_reply_ref])
+      |> Req.Request.prepend_request_steps(
+        put_ws_adapter: &AbsintheClient.Request.put_ws_adapter/1
+      )
+      |> Req.request!([retry: &subscribe_retry/1, query: query] ++ options)
+
+    %Req.Response{body: body, private: %{AbsintheClient.WebSocket => ref}} = response
+
+    case body do
+      %{"data" => %{"subscriptionId" => subscription_id}} ->
+        %{id: subscription_id, ref: ref}
+
+      other ->
+        raise ArgumentError,
+              "unexpected response from subscribe/3, " <>
+                "expected a map with a subscriptionId key, " <>
+                "got: #{inspect(other)}"
+    end
+  end
+
+  defp subscribe_retry(%AbsintheClient.NotJoinedError{}), do: true
+  defp subscribe_retry(_), do: false
 end
