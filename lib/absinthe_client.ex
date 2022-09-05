@@ -104,52 +104,6 @@ defmodule AbsintheClient do
   end
 
   @doc """
-  Connects the caller to a WebSocket process for the given `request`.
-
-  Usually you do not need to invoke this function directly as
-  it is automatically invoked for subscription operations.
-  However in certain cases you may want to start the socket
-  process early in order to ensure that it is fully connected
-  before you start pushing messages.
-
-  Only one socket process is created per caller per request URI.
-
-  ## Examples
-
-      iex> req = AbsintheClient.attach(Req.new(url: AbsintheClientTest.Endpoint.subscription_url()))
-      iex> socket_name = AbsintheClient.connect(req)
-      iex> is_atom(socket_name)
-      true
-
-  """
-  @spec connect(request :: Req.Request.t()) :: atom()
-  @spec connect(owner :: pid(), request :: Req.Request.t()) :: atom()
-  def connect(owner \\ self(), %Req.Request{} = request) do
-    name = custom_socket_name(owner: owner, url: request.url)
-
-    case DynamicSupervisor.start_child(
-           AbsintheClient.SocketSupervisor,
-           {AbsintheClient.WebSocket, {owner, name: name, uri: request.url}}
-         ) do
-      {:ok, _} ->
-        name
-
-      {:error, {:already_started, _}} ->
-        name
-    end
-  end
-
-  defp custom_socket_name(options) do
-    name =
-      options
-      |> :erlang.term_to_binary()
-      |> :erlang.md5()
-      |> Base.url_encode64(padding: false)
-
-    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
-  end
-
-  @doc """
   Performs a `subscription` operation over a WebSocket.
 
   ## Options
@@ -193,29 +147,29 @@ defmodule AbsintheClient do
       "my-subscription-ref"
 
   """
-  @spec subscribe!(Req.Request.t(), String.t(), keyword) :: %{
-          id: String.t(),
-          ref: reference()
-        }
+  @spec subscribe!(Req.Request.t(), String.t(), keyword) ::
+          AbsintheClient.Subscription.t()
   def subscribe!(request, query, options \\ [])
 
   def subscribe!(%Req.Request{} = request, query, options) do
+    # Connect early to minimize waiting on channel join
+    socket_name = AbsintheClient.WebSocket.connect(self(), request)
+
     response =
       %{request | method: AbsintheClient.WebSocket}
+      |> Req.Request.put_private(:absinthe_client_ws, socket_name)
       |> Req.Request.register_options([:ws_reply_ref])
       |> Req.Request.prepend_request_steps(put_ws_adapter: &AbsintheClient.Steps.put_ws_adapter/1)
       |> Req.request!([retry: &subscribe_retry/1, query: query] ++ options)
 
-    %Req.Response{body: body, private: %{AbsintheClient.WebSocket => ref}} = response
-
-    case body do
-      %{"data" => %{"subscriptionId" => subscription_id}} ->
-        %{id: subscription_id, ref: ref}
+    case response.body do
+      %AbsintheClient.Subscription{} = subscription ->
+        subscription
 
       other ->
         raise ArgumentError,
               "unexpected response from subscribe/3, " <>
-                "expected a map with a subscriptionId key, " <>
+                "expected AbsintheClient.Subscription.t(), " <>
                 "got: #{inspect(other)}"
     end
   end

@@ -11,7 +11,7 @@ defmodule AbsintheClient.Integration.WebSocketTest do
     end
 
     def init(%Req.Request{} = req) do
-      {:ok, AbsintheClient.connect(req)}
+      {:ok, AbsintheClient.WebSocket.connect(req)}
     end
 
     def handle_call({:call, fun}, _, state) when is_function(fun, 1) do

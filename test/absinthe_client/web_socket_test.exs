@@ -52,7 +52,7 @@ defmodule AbsintheClient.WebSocketTest do
     expected_result = %{"id" => result_id(client)}
     push(client, sub_id, "subscription:data", %{"result" => expected_result})
 
-    assert_receive %AbsintheClient.Subscription.Data{id: ^sub_id, result: ^expected_result}, 100
+    assert_receive %AbsintheClient.Subscription.Data{result: ^expected_result}
   end
 
   test "clear_subscriptions/1 unsubscribes from all active subscriptions", %{test: ref} do
@@ -100,7 +100,7 @@ defmodule AbsintheClient.WebSocketTest do
 
     expected_result = %{"id" => result_id(client)}
     push(client, sub_id, "subscription:data", %{"result" => expected_result})
-    assert_receive %AbsintheClient.Subscription.Data{id: ^sub_id, result: ^expected_result}
+    assert_receive %AbsintheClient.Subscription.Data{result: ^expected_result}
 
     disconnect(client, :closed)
 
@@ -116,7 +116,7 @@ defmodule AbsintheClient.WebSocketTest do
 
     expected_result = %{"id" => result_id(client)}
     push(client, resub_id, "subscription:data", %{"result" => expected_result})
-    assert_receive %AbsintheClient.Subscription.Data{id: ^resub_id, result: ^expected_result}
+    assert_receive %AbsintheClient.Subscription.Data{ref: ^ref, result: ^expected_result}
   end
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do

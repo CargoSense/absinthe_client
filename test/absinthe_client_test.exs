@@ -73,11 +73,9 @@ defmodule AbsintheClientUnitTest do
     assert response.body["data"]["repoComment"]["id"]
   end
 
-  describe "subscriptions (WebSocket)" do
+  describe "subscriptions" do
     test "performing a subscription operation", %{subscription_url: subscription_url} do
       req = Req.new(url: subscription_url) |> AbsintheClient.attach()
-
-      _socket_name = AbsintheClient.connect(req)
 
       response =
         AbsintheClient.subscribe!(
@@ -86,9 +84,41 @@ defmodule AbsintheClientUnitTest do
           variables: %{"repository" => "PHOENIX"}
         )
 
-      assert %{id: subscription_id, ref: ref} = response
-      assert subscription_id =~ "__absinthe__:doc:"
+      assert %AbsintheClient.Subscription{socket: socket, ref: ref} = response
+      assert Process.alive?(GenServer.whereis(socket))
       refute ref
+    end
+
+    test "subscription operation with replies",
+         %{subscription_url: subscription_url, test: test, url: url} do
+      reply_ref = "replies:#{System.unique_integer()}"
+
+      subscription =
+        AbsintheClient.subscribe!(
+          Req.new(url: subscription_url) |> AbsintheClient.attach(),
+          @repo_comment_subscription,
+          variables: %{"repository" => "PHOENIX"},
+          ws_reply_ref: reply_ref
+        )
+
+      assert %AbsintheClient.Subscription{ref: ^reply_ref} = subscription
+
+      Task.async(fn ->
+        Req.post!(Req.new(url: url) |> AbsintheClient.attach(),
+          query: @repo_comment_mutation,
+          variables: %{
+            "input" => %{
+              "repository" => "PHOENIX",
+              "commentary" => Atom.to_string(test)
+            }
+          }
+        )
+      end)
+      |> Task.await()
+
+      assert_receive %AbsintheClient.Subscription.Data{ref: ^reply_ref, result: result}
+
+      assert get_in(result, ~w(data repoCommentSubscribe commentary)) == Atom.to_string(test)
     end
   end
 end

@@ -69,6 +69,7 @@ defmodule Absinthe.Socket.MixProject do
         # AbsintheClient.WebSocket
 
         Structures: [
+          AbsintheClient.Subscription,
           AbsintheClient.Subscription.Data,
           AbsintheClient.WebSocket.Reply
         ]

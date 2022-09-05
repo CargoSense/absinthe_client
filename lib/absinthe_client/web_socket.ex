@@ -38,6 +38,52 @@ defmodule AbsintheClient.WebSocket do
   @control_topic "__absinthe__:control"
 
   @doc """
+  Connects the caller to a WebSocket process for the given `request`.
+
+  Usually you do not need to invoke this function directly as
+  it is automatically invoked for subscription operations.
+  However in certain cases you may want to start the socket
+  process early in order to ensure that it is fully connected
+  before you start pushing messages.
+
+  Only one socket process is created per caller per request URI.
+
+  ## Examples
+
+      iex> req = AbsintheClient.attach(Req.new(url: AbsintheClientTest.Endpoint.subscription_url()))
+      iex> socket_name = AbsintheClient.WebSocket.connect(req)
+      iex> is_atom(socket_name)
+      true
+
+  """
+  @spec connect(request :: Req.Request.t()) :: atom()
+  @spec connect(owner :: pid(), request :: Req.Request.t()) :: atom()
+  def connect(owner \\ self(), %Req.Request{} = request) do
+    name = custom_socket_name(owner: owner, url: request.url)
+
+    case DynamicSupervisor.start_child(
+           AbsintheClient.SocketSupervisor,
+           {AbsintheClient.WebSocket, {owner, name: name, uri: request.url}}
+         ) do
+      {:ok, _} ->
+        name
+
+      {:error, {:already_started, _}} ->
+        name
+    end
+  end
+
+  defp custom_socket_name(options) do
+    name =
+      options
+      |> :erlang.term_to_binary()
+      |> :erlang.md5()
+      |> Base.url_encode64(padding: false)
+
+    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
+  end
+
+  @doc """
   Pushes a `query` over the given `socket` for execution.
 
   ## Options
@@ -232,8 +278,8 @@ defmodule AbsintheClient.WebSocket do
   @impl Slipstream
   def handle_message(topic, "subscription:data", %{"result" => result}, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
-      {:ok, %{pid: pid}} ->
-        message = %AbsintheClient.Subscription.Data{id: topic, result: result}
+      {:ok, %Push{ref: ref, pid: pid}} ->
+        message = %AbsintheClient.Subscription.Data{ref: ref, result: result}
         send(pid, message)
 
       _ ->
@@ -290,7 +336,14 @@ defmodule AbsintheClient.WebSocket do
     case push_message(socket, push) do
       {:ok, ref} ->
         result = Slipstream.await_reply(ref, timeout)
-        {:reply, result, maybe_update_subscriptions(socket, push, result)}
+
+        reply = %AbsintheClient.WebSocket.Reply{
+          event: "doc",
+          ref: push.ref,
+          result: result
+        }
+
+        {:reply, {:ok, reply}, maybe_update_subscriptions(socket, push, result)}
 
       {:error, :not_joined} ->
         {:reply, {:error, %AbsintheClient.NotJoinedError{}}, socket}

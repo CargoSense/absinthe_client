@@ -21,30 +21,31 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     ## Private
 
     def init({client, parent}) do
-      socket_name = AbsintheClient.connect(client)
+      socket_name = AbsintheClient.WebSocket.connect(client)
 
       {
         :ok,
-        %{parent: parent, client: client, socket: socket_name, subscription_id_to_ref: %{}}
+        %{parent: parent, client: client, socket: socket_name, refs_to_subs: %{}}
       }
     end
 
     def handle_info(%AbsintheClient.WebSocket.Reply{ref: ref, result: result}, state) do
-      {:ok, %{"subscriptionId" => subscription_id}} = result
+      # todo: make this be a %Subscription{}
+      {:ok, %{"subscriptionId" => _}} = result
 
-      send(state.parent, {:subscription_reply, ref, subscription_id})
+      send(state.parent, {:subscription_reply, ref, state.socket})
 
-      new_subs = Map.put(state.subscription_id_to_ref, subscription_id, ref)
+      new_subs = Map.put(state.refs_to_subs, ref, state.socket)
 
-      {:noreply, %{state | subscription_id_to_ref: new_subs}}
+      {:noreply, %{state | refs_to_subs: new_subs}}
     end
 
-    def handle_info(%AbsintheClient.Subscription.Data{id: subscription_id} = data, state) do
+    def handle_info(%AbsintheClient.Subscription.Data{ref: ref} = data, state) do
       %{"data" => %{"repoCommentSubscribe" => object}} = data.result
 
-      case Map.fetch(state.subscription_id_to_ref, subscription_id) do
-        {:ok, ref} ->
-          send(state.parent, {:subscription_data, ref, subscription_id, object})
+      case Map.fetch(state.refs_to_subs, ref) do
+        {:ok, socket} ->
+          send(state.parent, {:subscription_data, ref, socket, object})
           {:noreply, state}
 
         :error ->
@@ -65,16 +66,16 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
           }
           """,
           variables: %{"repository" => name},
-          ws_reply_ref: "subscription-#{System.unique_integer()}"
+          ws_reply_ref: ref = "subscription-#{System.unique_integer()}"
         )
 
-      %{id: subscription_id, ref: ref} = subscription
+      %AbsintheClient.Subscription{socket: socket, ref: ^ref} = subscription
 
-      send(state.parent, {:subscription_reply, ref, subscription_id})
+      send(state.parent, {:subscription_reply, ref, socket})
 
-      new_subs = Map.put(state.subscription_id_to_ref, subscription_id, ref)
+      new_subs = Map.put(state.refs_to_subs, ref, socket)
 
-      {:reply, {:ok, ref}, %{state | subscription_id_to_ref: new_subs}}
+      {:reply, {:ok, ref}, %{state | refs_to_subs: new_subs}}
     end
 
     def handle_call(:trigger_disconnect, _from, state) do

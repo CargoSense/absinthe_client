@@ -3,5 +3,5 @@ defmodule AbsintheClient.Subscription.Data do
   Structure for data sent for a GraphQL subscription.
   """
   @type t :: %__MODULE__{}
-  defstruct [:result, :id]
+  defstruct [:ref, :result]
 end

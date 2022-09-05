@@ -107,7 +107,7 @@ defmodule AbsintheClient.Steps do
   """
   @doc step: :adapter
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    socket_name = AbsintheClient.connect(self(), request)
+    socket_name = request.private.absinthe_client_ws
 
     query = Map.fetch!(request.options, :query)
     variables = Map.get(request.options, :variables, %{})
@@ -117,9 +117,22 @@ defmodule AbsintheClient.Steps do
       {:error, %{__exception__: true} = exception} ->
         {request, exception}
 
-      {:ok, payload} ->
-        {request,
-         Req.Response.new(body: %{"data" => payload}, private: %{AbsintheClient.WebSocket => ref})}
+      {:ok, %AbsintheClient.WebSocket.Reply{} = reply} ->
+        {request, Req.Response.new(body: transform_ws_reply(request, reply))}
+    end
+  end
+
+  defp transform_ws_reply(%Req.Request{} = req, %AbsintheClient.WebSocket.Reply{} = reply) do
+    case reply.result do
+      {:ok, %{"subscriptionId" => subscription_id}} ->
+        %AbsintheClient.Subscription{
+          socket: req.private.absinthe_client_ws,
+          ref: reply.ref,
+          id: subscription_id
+        }
+
+      _ ->
+        reply
     end
   end
 end
