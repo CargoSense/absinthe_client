@@ -65,7 +65,7 @@ defmodule Absinthe.Socket.MixProject do
       groups_for_modules: [
         # Ungrouped modules
         # AbsintheClient
-        # AbsintheClient.Request
+        # AbsintheClient.Steps
         # AbsintheClient.WebSocket
 
         Structures: [

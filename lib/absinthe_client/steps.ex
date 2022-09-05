@@ -1,28 +1,14 @@
-defmodule AbsintheClient.Request do
+defmodule AbsintheClient.Steps do
   @moduledoc """
-  The `Req` plugin with subscription adapter.
+  The collection of built-in steps.
 
   AbsintheClient is composed of three main pieces:
 
-    * `AbsintheClient` - the high-level API
+    * `AbsintheClient` - the `Req` plugin for GraphQL
 
-    * `AbsintheClient.Request` - the `Req` plugin with subscription adapter (you're here!)
+    * `AbsintheClient.Steps` - the collection of built-in steps (you're here!)
 
     * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
-
-  The plugin comprises the individual steps required
-  to perform a GraphQL operation via a [`Request`](`Req.Request`).
-  The plugin supports subscriptions by overriding the request
-  adapter for subscription operations with a socket-based
-  implementation with built-in state management.
-
-  ## The plugin
-
-  Most queries can be performed like this:
-
-      req = Req.new(url: url) |> AbsintheClient.attach()
-      Req.post!(req, query: "query { allLinks { url } }").data
-      #=> %{ "allLinks" => %{ "url" => "http://graphql.org/" } }
 
   """
 
@@ -102,7 +88,7 @@ defmodule AbsintheClient.Request do
   Runs the request using `AbsintheClient.WebSocket`.
 
   This is the default WebSocket adapter for AbsintheClient
-  set via the `AbsintheClient.Request.put_ws_adapter/1` step.
+  set via the `AbsintheClient.Steps.put_ws_adapter/1` step.
 
   While you _can_ use `AbsintheClient.WebSocket` to execute
   all your operation types, it is recommended to continue
@@ -110,15 +96,16 @@ defmodule AbsintheClient.Request do
   queries and mutations are not stateful so they are more
   suited to HTTP and will scale better there in most cases.
 
-  The `AbsintheClient.Request.put_ws_adapter/1` step
+  The `AbsintheClient.Steps.put_ws_adapter/1` step
   introspects the operation type to override the adapter
   when it encounters a `:subscription` operation type.
 
   ## Examples
 
-      req = Req.new(adapter: &AbsintheClient.run_absinthe_ws_adapter/1)
+      req = Req.new(adapter: &AbsintheClient.Steps.run_absinthe_ws_adapter/1)
 
   """
+  @doc step: :adapter
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
     socket_name = AbsintheClient.connect(self(), request)
 

@@ -1,12 +1,12 @@
 defmodule AbsintheClient do
   @moduledoc ~S"""
-  The Absinthe GraphQL client.
+  The `Req` plugin for GraphQL.
 
   AbsintheClient is composed of three main pieces:
 
-    * `AbsintheClient` - the high-level API (you're here!)
+    * `AbsintheClient` - the `Req` plugin for GraphQL (you're here!)
 
-    * `AbsintheClient.Request` - the `Req` plugin steps and subscription adapter
+    * `AbsintheClient.Steps` - the collection of built-in steps
 
     * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
 
@@ -99,7 +99,7 @@ defmodule AbsintheClient do
     |> Req.Request.register_options([:query, :variables])
     |> Req.Request.merge_options(options)
     |> Req.Request.prepend_request_steps(
-      encode_operation: &AbsintheClient.Request.encode_operation/1
+      encode_operation: &AbsintheClient.Steps.encode_operation/1
     )
   end
 
@@ -152,7 +152,13 @@ defmodule AbsintheClient do
   @doc """
   Performs a `subscription` operation over a WebSocket.
 
-  ## WebSocket options
+  ## Options
+
+  Operation options:
+
+    * `:variables` - A map of input values for the operation.
+
+  WebSocket options:
 
     * `:ws_reply_ref` - A unique term to track async replies.
       If set, the caller will receive latent replies from the
@@ -197,9 +203,7 @@ defmodule AbsintheClient do
     response =
       %{request | method: AbsintheClient.WebSocket}
       |> Req.Request.register_options([:ws_reply_ref])
-      |> Req.Request.prepend_request_steps(
-        put_ws_adapter: &AbsintheClient.Request.put_ws_adapter/1
-      )
+      |> Req.Request.prepend_request_steps(put_ws_adapter: &AbsintheClient.Steps.put_ws_adapter/1)
       |> Req.request!([retry: &subscribe_retry/1, query: query] ++ options)
 
     %Req.Response{body: body, private: %{AbsintheClient.WebSocket => ref}} = response

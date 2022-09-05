@@ -1,7 +1,7 @@
-defmodule AbsintheClient.RequestTest do
+defmodule AbsintheClient.StepsTest do
   use ExUnit.Case, async: true
 
-  doctest AbsintheClient.Request
+  doctest AbsintheClient.Steps
 
   defmodule EchoJSON do
     def call(conn, _) do

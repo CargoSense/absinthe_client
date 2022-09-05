@@ -4,9 +4,9 @@ defmodule AbsintheClient.WebSocket do
 
   AbsintheClient is composed of three main pieces:
 
-    * `AbsintheClient` - the high-level API
+    * `AbsintheClient` - the `Req` plugin for GraphQL
 
-    * `AbsintheClient.Request` - the `Req` plugin with subscription adapter
+    * `AbsintheClient.Steps` - the collection of built-in steps
 
     * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager (you're here!)
 
