@@ -96,18 +96,15 @@ defmodule AbsintheClient.Steps do
   queries and mutations are not stateful so they are more
   suited to HTTP and will scale better there in most cases.
 
-  The `AbsintheClient.Steps.put_ws_adapter/1` step
-  introspects the operation type to override the adapter
-  when it encounters a `:subscription` operation type.
-
   ## Examples
 
       req = Req.new(adapter: &AbsintheClient.Steps.run_absinthe_ws_adapter/1)
 
   """
-  @doc step: :adapter
+  @doc step: :request
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    socket_name = request.private.absinthe_client_ws
+    socket_name = AbsintheClient.WebSocket.connect(self(), put_ws_scheme(request.url))
+    request = Req.Request.put_private(request, :absinthe_client_ws, socket_name)
 
     query = Map.fetch!(request.options, :query)
     variables = Map.get(request.options, :variables, %{})
@@ -120,6 +117,10 @@ defmodule AbsintheClient.Steps do
       {:ok, %AbsintheClient.WebSocket.Reply{} = reply} ->
         {request, Req.Response.new(body: transform_ws_reply(request, reply))}
     end
+  end
+
+  defp put_ws_scheme(%URI{} = url) do
+    put_in(url.scheme, String.replace(url.scheme, "http", "ws"))
   end
 
   defp transform_ws_reply(%Req.Request{} = req, %AbsintheClient.WebSocket.Reply{} = reply) do

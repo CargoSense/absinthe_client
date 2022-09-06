@@ -21,7 +21,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     ## Private
 
     def init({client, parent}) do
-      socket_name = AbsintheClient.WebSocket.connect(client)
+      socket_name = AbsintheClient.WebSocket.connect(client.url)
 
       {
         :ok,

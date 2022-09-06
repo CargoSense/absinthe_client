@@ -57,12 +57,13 @@ defmodule AbsintheClient do
 
   Performing a `subscription` operation:
 
-      iex> client = AbsintheClient.attach(Req.new(url: "ws://localhost:8001/socket/websocket"))
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
       iex> subscription =
       ...>   AbsintheClient.subscribe!(
       ...>     client,
       ...>     "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
-      ...>     variables: %{"repository" => "ELIXIR"}
+      ...>     variables: %{"repository" => "ELIXIR"},
+      ...>     url: "/socket/websocket"
       ...>   )
       iex> String.starts_with?(subscription.id, "__absinthe__")
       true
@@ -152,12 +153,8 @@ defmodule AbsintheClient do
   def subscribe!(request, query, options \\ [])
 
   def subscribe!(%Req.Request{} = request, query, options) do
-    # Connect early to minimize waiting on channel join
-    socket_name = AbsintheClient.WebSocket.connect(self(), request)
-
     response =
       %{request | method: AbsintheClient.WebSocket}
-      |> Req.Request.put_private(:absinthe_client_ws, socket_name)
       |> Req.Request.register_options([:ws_reply_ref])
       |> Req.Request.prepend_request_steps(put_ws_adapter: &AbsintheClient.Steps.put_ws_adapter/1)
       |> Req.request!([retry: &subscribe_retry/1, query: query] ++ options)

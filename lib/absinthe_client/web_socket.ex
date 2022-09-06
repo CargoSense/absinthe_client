@@ -37,35 +37,20 @@ defmodule AbsintheClient.WebSocket do
 
   @control_topic "__absinthe__:control"
 
-  @doc """
-  Connects the caller to a WebSocket process for the given `request`.
-
-  Usually you do not need to invoke this function directly as
-  it is automatically invoked for subscription operations.
-  However in certain cases you may want to start the socket
-  process early in order to ensure that it is fully connected
-  before you start pushing messages.
-
-  Only one socket process is created per caller per request URI.
-
-  ## Examples
-
-      iex> req = AbsintheClient.attach(Req.new(url: AbsintheClientTest.Endpoint.subscription_url()))
-      iex> socket_name = AbsintheClient.WebSocket.connect(req)
-      iex> is_atom(socket_name)
-      true
-
-  """
-  @spec connect(request :: Req.Request.t()) :: atom()
-  @spec connect(owner :: pid(), request :: Req.Request.t()) :: atom()
-  def connect(owner \\ self(), %Req.Request{} = request) do
-    name = custom_socket_name(owner: owner, url: request.url)
+  # Connects the caller to a WebSocket process for the given `url`.
+  @doc false
+  @spec connect(url :: URI.t()) :: atom()
+  @spec connect(owner :: pid(), url :: URI.t()) :: atom()
+  def connect(owner \\ self(), %URI{} = url) do
+    name = custom_socket_name(owner: owner, url: url)
 
     case DynamicSupervisor.start_child(
            AbsintheClient.SocketSupervisor,
-           {AbsintheClient.WebSocket, {owner, name: name, uri: request.url}}
+           {AbsintheClient.WebSocket, {owner, name: name, uri: url}}
          ) do
       {:ok, _} ->
+        # todo: await control topic join to avoid push retries
+        # on the initial connection.
         name
 
       {:error, {:already_started, _}} ->
