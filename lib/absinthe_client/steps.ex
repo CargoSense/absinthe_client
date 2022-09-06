@@ -66,20 +66,22 @@ defmodule AbsintheClient.Steps do
   @doc """
   Overrides the Req adapter for subscription requests.
 
-  If set, the adapter is overriden with
-  `run_absinthe_ws_adapter/1`.
+  ## Request options
+
+    * `:ws_adapter` - If set, to true, runs the request thru
+      the `run_absinthe_ws_adapter/1`. Defaults to `false`.
 
   """
   @doc step: :request
   def put_ws_adapter(%Req.Request{} = request) do
     case Map.fetch(request.options, :ws_adapter) do
-      :error ->
-        %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
-
       {:ok, true} ->
         %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
 
       {:ok, false} ->
+        request
+
+      :error ->
         request
     end
   end

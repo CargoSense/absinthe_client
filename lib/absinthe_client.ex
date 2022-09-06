@@ -97,10 +97,11 @@ defmodule AbsintheClient do
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
     request
-    |> Req.Request.register_options([:query, :variables])
+    |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_reply_ref])
     |> Req.Request.merge_options(options)
     |> Req.Request.prepend_request_steps(
-      encode_operation: &AbsintheClient.Steps.encode_operation/1
+      encode_operation: &AbsintheClient.Steps.encode_operation/1,
+      put_ws_adapter: &AbsintheClient.Steps.put_ws_adapter/1
     )
   end
 
@@ -114,6 +115,9 @@ defmodule AbsintheClient do
     * `:variables` - A map of input values for the operation.
 
   WebSocket options:
+
+    * `:ws_adapter` - When set to `true`, runs the operation
+      via the WebSocket adapter. Defaults to `false`.
 
     * `:ws_reply_ref` - A unique term to track async replies.
       If set, the caller will receive latent replies from the
@@ -155,9 +159,7 @@ defmodule AbsintheClient do
   def subscribe!(%Req.Request{} = request, query, options) do
     response =
       %{request | method: AbsintheClient.WebSocket}
-      |> Req.Request.register_options([:ws_reply_ref])
-      |> Req.Request.prepend_request_steps(put_ws_adapter: &AbsintheClient.Steps.put_ws_adapter/1)
-      |> Req.request!([retry: &subscribe_retry/1, query: query] ++ options)
+      |> Req.request!([retry: &subscribe_retry/1, query: query, ws_adapter: true] ++ options)
 
     case response.body do
       %AbsintheClient.Subscription{} = subscription ->
