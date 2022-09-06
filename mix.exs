@@ -62,6 +62,11 @@ defmodule Absinthe.Socket.MixProject do
       language: "en",
       formatters: ["html"],
       main: AbsintheClient,
+      groups_for_functions: [
+        "Request steps": &(&1[:step] == :request),
+        "Response steps": &(&1[:step] == :response),
+        "Error steps": &(&1[:step] == :error)
+      ],
       groups_for_modules: [
         # Ungrouped modules
         # AbsintheClient

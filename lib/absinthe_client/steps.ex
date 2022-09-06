@@ -64,7 +64,33 @@ defmodule AbsintheClient.Steps do
   end
 
   @doc """
-  Overrides the Req adapter for subscription requests.
+  Puts the GraphQL path on the URI.
+
+  ## Request options
+
+    * `:url` - If set, the path to set on the request.
+      Defaults to `"/graphql"` for http schemes and
+      `"/socket/websocket"` for ws schemes.
+  """
+  @doc step: :request
+  def put_graphql_path(%Req.Request{} = request) do
+    scheme = request.url.scheme
+
+    update_in(request.url.path, fn
+      nil ->
+        cond do
+          is_nil(scheme) -> nil
+          String.starts_with?(scheme, "http") -> "/graphql"
+          String.starts_with?(scheme, "ws") -> "/socket/websocket"
+        end
+
+      path ->
+        path
+    end)
+  end
+
+  @doc """
+  Overrides the Req adapter for WebSocket requests.
 
   ## Request options
 
@@ -87,6 +113,34 @@ defmodule AbsintheClient.Steps do
   end
 
   @doc """
+  Overrides the URI scheme for the WebSocket protocol.
+
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "https://rickandmortyapi.com"))
+      iex> AbsintheClient.run!(client, "query { character(id: 1) { name } }").body["data"]
+      %{"character" => %{"name" => "Rick Sanchez"}}
+  """
+  @doc step: :request
+  def put_ws_scheme(%Req.Request{} = request) do
+    case Map.fetch(request.options, :ws_scheme) do
+      {:ok, true} -> put_ws_scheme(request, ws_scheme(request.url))
+      {:ok, false} -> request
+      :error -> request
+    end
+  end
+
+  defp put_ws_scheme(request, scheme) when is_binary(scheme) do
+    put_in(request.url.scheme, scheme)
+  end
+
+  defp ws_scheme(%URI{scheme: nil} = url), do: url
+
+  defp ws_scheme(%URI{scheme: scheme} = url) when is_binary(scheme) do
+    String.replace(url.scheme, "http", "ws")
+  end
+
+  @doc """
   Runs the request using `AbsintheClient.WebSocket`.
 
   This is the default WebSocket adapter for AbsintheClient
@@ -105,7 +159,8 @@ defmodule AbsintheClient.Steps do
   """
   @doc step: :request
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    socket_name = AbsintheClient.WebSocket.connect(self(), put_ws_scheme(request.url))
+    request = put_ws_scheme(request, ws_scheme(request.url))
+    socket_name = AbsintheClient.WebSocket.connect(self(), request.url)
     request = Req.Request.put_private(request, :absinthe_client_ws, socket_name)
 
     query = Map.fetch!(request.options, :query)
@@ -119,10 +174,6 @@ defmodule AbsintheClient.Steps do
       {:ok, %AbsintheClient.WebSocket.Reply{} = reply} ->
         {request, Req.Response.new(body: transform_ws_reply(request, reply))}
     end
-  end
-
-  defp put_ws_scheme(%URI{} = url) do
-    put_in(url.scheme, String.replace(url.scheme, "http", "ws"))
   end
 
   defp transform_ws_reply(%Req.Request{} = req, %AbsintheClient.WebSocket.Reply{} = reply) do

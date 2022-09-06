@@ -21,6 +21,15 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     ## Private
 
     def init({client, parent}) do
+      # Applies the URI changes to the client so we can connect early.
+      client =
+        client
+        |> Req.Request.merge_options(ws_scheme: true)
+        |> Req.Steps.put_base_url()
+        |> AbsintheClient.Steps.put_ws_scheme()
+        |> AbsintheClient.Steps.put_graphql_path()
+
+      client = update_in(client.options, &Map.delete(&1, :base_url))
       socket_name = AbsintheClient.WebSocket.connect(client.url)
 
       {
@@ -151,15 +160,15 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
   end
 
   setup do
+    url = AbsintheClientTest.Endpoint.url()
     http_url = AbsintheClientTest.Endpoint.graphql_url()
     socket_url = AbsintheClientTest.Endpoint.subscription_url()
 
-    {:ok, %{http_url: http_url, socket_url: socket_url}}
+    {:ok, %{http_url: http_url, socket_url: socket_url, url: url}}
   end
 
-  test "pushes a subscription to the server and receives a success reply",
-       %{socket_url: socket_url} do
-    client = Req.new(method: :post, url: socket_url) |> AbsintheClient.attach()
+  test "pushes a subscription to the server and receives a success reply", %{url: url} do
+    client = Req.new(base_url: url) |> AbsintheClient.attach()
     pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     {:ok, ref} = CommentSubscriber.subscribe(pid, {:repo, "ELIXIR"})
@@ -169,27 +178,23 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     assert subscription_id
   end
 
-  test "forwards a subscription message to the subscribed caller",
-       %{http_url: http_url, socket_url: socket_url} do
-    ws_client = Req.new(method: :post, url: socket_url) |> AbsintheClient.attach()
-    subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
+  test "forwards a subscription message to the subscribed caller", %{url: url} do
+    client = Req.new(method: :post, base_url: url) |> AbsintheClient.attach()
+    subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     repo = "ABSINTHE"
     {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
 
-    http_client = Req.new(method: :post, url: http_url) |> AbsintheClient.attach()
-    publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
+    publisher_pid = start_supervised!({CommentPublisher, {client, self()}})
     comment_id = CommentPublisher.publish!(publisher_pid, repository: repo, commentary: "hi")
 
     assert_receive {:subscription_data, ^ref, _, %{"id" => ^comment_id, "commentary" => "hi"}}
   end
 
-  test "messages are not sent for cleared subscriptions",
-       %{http_url: http_url, socket_url: socket_url, test: test} do
-    http_client = Req.new(method: :post, url: http_url) |> AbsintheClient.attach()
-    publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
-    ws_client = Req.new(method: :post, url: socket_url) |> AbsintheClient.attach()
-    subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
+  test "messages are not sent for cleared subscriptions", %{url: url, test: test} do
+    client = Req.new(url: url) |> AbsintheClient.attach()
+    publisher_pid = start_supervised!({CommentPublisher, {client, self()}})
+    subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     # Subscribes and receives a message on the ABSINTHE repository topic.
     {:ok, abs_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "ABSINTHE"})
@@ -237,13 +242,10 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     refute_received {:subscription_data, ^abs_ref, _, _}
   end
 
-  test "rejoining active subscription on reconnect",
-       %{http_url: http_url, socket_url: socket_url, test: test} do
-    http_client = Req.new(method: :post, url: http_url) |> AbsintheClient.attach()
-    publisher_pid = start_supervised!({CommentPublisher, {http_client, self()}})
-
-    ws_client = Req.new(method: :post, url: socket_url) |> AbsintheClient.attach()
-    subscriber_pid = start_supervised!({CommentSubscriber, {ws_client, self()}})
+  test "rejoining active subscription on reconnect", %{url: url, test: test} do
+    client = Req.new(url: url) |> AbsintheClient.attach()
+    publisher_pid = start_supervised!({CommentPublisher, {client, self()}})
+    subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     repo = "PHOENIX"
     text = "#{test}"
