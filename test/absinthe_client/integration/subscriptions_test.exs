@@ -161,10 +161,8 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
   setup do
     url = AbsintheClientTest.Endpoint.url()
-    http_url = AbsintheClientTest.Endpoint.graphql_url()
-    socket_url = AbsintheClientTest.Endpoint.subscription_url()
 
-    {:ok, %{http_url: http_url, socket_url: socket_url, url: url}}
+    {:ok, %{url: url}}
   end
 
   test "pushes a subscription to the server and receives a success reply", %{url: url} do
