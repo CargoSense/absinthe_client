@@ -81,7 +81,27 @@ defmodule AbsintheClient do
   @doc """
   Attaches the `AbsintheClient` steps to a given `request`.
 
-  Refer to `run/2` for a list of supported options.
+  ## Options
+
+  Operation options:
+
+    * `:query` - A string of a GraphQL document with a single
+      operation.
+
+    * `:variables` - A map of input values for the operation.
+
+  WebSocket options:
+
+    * `:ws_adapter` - When set to `true`, runs the operation
+      via the WebSocket adapter. Defaults to `false`.
+
+    * `:ws_async` - When set to `true`, runs the operation
+      in async mode. The response body will be empty and you
+      will need to receive the `AbsintheClient.WebSocket.Reply`
+      message. Defaults to `false`.
+
+    * `:receive_timeout` - socket receive timeout in milliseconds,
+      defaults to `15_000`.
 
   ## Examples
 
@@ -114,7 +134,7 @@ defmodule AbsintheClient do
   Note this operation must be performed by the WebSocket
   adapter.
 
-  Refer to `run/2` for a list of supported options.
+  Refer to `attach/2` for a list of supported options.
 
   ## Examples
 
@@ -165,24 +185,7 @@ defmodule AbsintheClient do
   @doc """
   Runs a GraphQL operation and returns a response.
 
-  ## Options
-
-  Operation options:
-
-    * `:variables` - A map of input values for the operation.
-
-  WebSocket options:
-
-    * `:ws_adapter` - When set to `true`, runs the operation
-      via the WebSocket adapter. Defaults to `false`.
-
-    * `:ws_async` - When set to `true`, runs the operation
-      in async mode. The response body will be empty and you
-      will need to receive the `AbsintheClient.WebSocket.Reply`
-      message. Defaults to `false`.
-
-    * `:receive_timeout` - socket receive timeout in milliseconds,
-      defaults to 15_000.
+  Refer to `attach/2` for a list of supported options.
 
   All other options are forwarded to `Req.request/2`.
 
@@ -213,7 +216,15 @@ defmodule AbsintheClient do
   @doc """
   Runs a GraphQL operation and returns a response or raises an error.
 
-  Refer to `run/2` for more information.
+  Refer to `attach/2` for a list of supported options.
+
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com"))
+      iex> AbsintheClient.run!(client, "query($id: ID!) { character(id: $id) { name } }",
+      ...>   variables: %{id: 5}
+      ...> ).body["data"]
+      %{"character" => %{"name" => "Jerry Smith"}}
   """
   @spec run!(Req.Request.t(), String.t(), keyword) :: Req.Response.t()
   def run!(request, operation, options \\ []) do

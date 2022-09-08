@@ -1,8 +1,10 @@
 defmodule AbsintheClient.Integration.EndpointTest do
   # These tests aren't directly related to the AbsintheClient functionality–
   # they exist as sanity checks that the GraphQL server is running and accepting connections.
-  use ExUnit.Case, async: true
+  use ExUnit.Case
   alias AbsintheClientTest.Endpoint
+
+  @moduletag :integration
 
   setup do
     {:ok, url: Endpoint.graphql_url()}

@@ -1,8 +1,6 @@
 defmodule AbsintheClient.StepsTest do
   use ExUnit.Case, async: true
 
-  doctest AbsintheClient.Steps
-
   defmodule EchoJSON do
     def call(conn, _) do
       {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -34,7 +32,7 @@ defmodule AbsintheClient.StepsTest do
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> Req.post!(query: "query GetItem{ getItem{ id } }")
+      |> AbsintheClient.run!("query GetItem{ getItem{ id } }")
 
     assert resp.body == %{"query" => "query GetItem{ getItem{ id } }", "variables" => %{}}
 
@@ -42,7 +40,7 @@ defmodule AbsintheClient.StepsTest do
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> Req.post!(query: "query GetItem{ getItem{ id } }", variables: %{"foo" => "bar"})
+      |> AbsintheClient.run!("query GetItem{ getItem{ id } }", variables: %{"foo" => "bar"})
 
     assert resp.body == %{
              "query" => "query GetItem{ getItem{ id } }",

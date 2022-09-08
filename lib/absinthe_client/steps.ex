@@ -25,12 +25,11 @@ defmodule AbsintheClient.Steps do
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
-      iex> Req.post!(client, query: "query{ character(id: 1){ name } }").body["data"]
+      iex> AbsintheClient.run!(client, "query{ character(id: 1){ name } }").body["data"]
       %{"character" => %{"name" => "Rick Sanchez"}}
 
       iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com/graphql"))
-      iex> Req.post!(client,
-      ...>   query: "query($id: ID!){ character(id: $id){ name } }",
+      iex> AbsintheClient.run!(client, "query($id: ID!){ character(id: $id){ name } }",
       ...>   variables: %{id: 2}
       ...> ).body["data"]
       %{"character" => %{"name" => "Morty Smith"}}
@@ -68,11 +67,17 @@ defmodule AbsintheClient.Steps do
 
   ## Request options
 
-    * `:ws_adapter` - If set to `true`, then the request path
-      defaults to `"/socket/websocket"`. Defaults to `false`.
-
     * `:url` - If set, the path to set on the request.
       Defaults to `"/graphql"`.
+
+    * `:ws_adapter` - If set to `true`, then the URI path
+      defaults to `"/socket/websocket"`. Defaults to `false`.
+
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(url: "https://rickandmortyapi.com"))
+      iex> AbsintheClient.run!(client, "query{ character(id: 1){ name } }").body["data"]
+      %{"character" => %{"name" => "Rick Sanchez"}}
   """
   @doc step: :request
   def put_graphql_path(%Req.Request{} = request) do
@@ -96,6 +101,11 @@ defmodule AbsintheClient.Steps do
     * `:ws_adapter` - If set, to true, runs the request thru
       the `run_absinthe_ws_adapter/1`. Defaults to `false`.
 
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      %{"__type" => %{"name" => "Repo"}}
   """
   @doc step: :request
   def put_ws_adapter(%Req.Request{} = request) do
@@ -113,6 +123,11 @@ defmodule AbsintheClient.Steps do
 
   @doc """
   Overrides the URI scheme for the WebSocket protocol.
+
+  ## Request options
+
+    * `:ws_adapter` - If set, to true, the URI scheme will
+      be adapted for WebSockets (e.g. `"https"` becomes `"wss"`).
 
   ## Examples
 
@@ -161,8 +176,9 @@ defmodule AbsintheClient.Steps do
 
   ## Examples
 
-      req = Req.new(adapter: &AbsintheClient.Steps.run_absinthe_ws_adapter/1)
-
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      %{"__type" => %{"name" => "Repo"}}
   """
   @doc step: :request
   def run_absinthe_ws_adapter(%Req.Request{} = request) do

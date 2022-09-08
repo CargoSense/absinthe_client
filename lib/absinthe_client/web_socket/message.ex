@@ -1,6 +1,6 @@
 defmodule AbsintheClient.WebSocket.Reply do
   @moduledoc """
-  Defines a reply sent from GraphQL servers to clients.
+  Reply sent from GraphQL servers to clients in response to a pushed document.
 
   The message format requires the following keys:
 
@@ -21,7 +21,7 @@ end
 
 defmodule AbsintheClient.WebSocket.Message do
   @moduledoc """
-  Defines a message from the from the server to the client.
+  Message sent from the server to the client.
 
   The message format requires the following keys:
 

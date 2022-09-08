@@ -1,5 +1,8 @@
 defmodule AbsintheClientUnitTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case
 
-  doctest AbsintheClient
+  doctest AbsintheClient,
+    only: [
+      attach: 2
+    ]
 end

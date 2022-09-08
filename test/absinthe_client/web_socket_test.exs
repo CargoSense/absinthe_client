@@ -2,7 +2,6 @@ defmodule AbsintheClient.WebSocketTest do
   use ExUnit.Case, async: false
   use Slipstream.SocketTest
 
-  doctest AbsintheClient.WebSocket
   doctest AbsintheClient.WebSocket.Push
 
   @control_topic "__absinthe__:control"
