@@ -166,20 +166,26 @@ defmodule AbsintheClient.Steps do
   """
   @doc step: :request
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    request = retryable_ws_request(request)
     socket_name = AbsintheClient.WebSocket.connect(self(), request.url)
     request = Req.Request.put_private(request, :absinthe_client_ws, socket_name)
 
     query = Map.fetch!(request.options, :query)
     variables = Map.get(request.options, :variables, %{})
-    ref = Map.get(request.options, :ws_reply_ref, nil)
 
-    case AbsintheClient.WebSocket.push_sync(socket_name, query, variables, ref) do
-      {:error, %{__exception__: true} = exception} ->
-        {request, exception}
+    {:ok, ref} = AbsintheClient.WebSocket.push(socket_name, query, variables)
 
-      {:ok, %AbsintheClient.WebSocket.Reply{} = reply} ->
-        {request, reply_response(request, reply)}
+    if Map.get(request.options, :ws_async) do
+      {request, Req.Response.new(private: %{ws_async_ref: ref})}
+    else
+      receive_timeout = Map.get(request.options, :receive_timeout, 15_000)
+
+      case AbsintheClient.WebSocket.await_reply(ref, receive_timeout) do
+        {:ok, reply} ->
+          {request, reply_response(request, reply)}
+
+        {:error, reason} ->
+          {request, reason}
+      end
     end
   end
 
@@ -188,8 +194,8 @@ defmodule AbsintheClient.Steps do
       status: ws_response_status(reply.status),
       body: ws_response_body(req, reply),
       private: %{
-        ws_push_ref: reply.push_ref,
-        ws_reply_ref: reply.ref
+        ws_async_ref: reply.ref,
+        ws_push_ref: reply.push_ref
       }
     )
   end
@@ -210,13 +216,4 @@ defmodule AbsintheClient.Steps do
         reply.payload
     end
   end
-
-  defp retryable_ws_request(%Req.Request{} = request) do
-    update_in(request.options, fn opts ->
-      Map.put_new(opts, :retry, &ws_retry/1)
-    end)
-  end
-
-  def ws_retry(%AbsintheClient.NotJoinedError{}), do: true
-  def ws_retry(_), do: false
 end

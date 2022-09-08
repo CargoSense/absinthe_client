@@ -92,7 +92,7 @@ defmodule AbsintheClient do
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
     request
-    |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_reply_ref])
+    |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_async])
     |> Req.Request.merge_options(options)
     |> Req.Request.append_request_steps(
       encode_operation: &AbsintheClient.Steps.encode_operation/1,
@@ -113,38 +113,46 @@ defmodule AbsintheClient do
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
-      iex> AbsintheClient.subscribe!(
+      iex> ref = AbsintheClient.subscribe!(
       ...>   client,
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"}
       ...> ).body.ref
-      nil
+      iex> is_reference(ref)
+      true
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
-      iex> AbsintheClient.subscribe!(
+      iex> ref = AbsintheClient.subscribe!(
       ...>   client,
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"},
-      ...>   ws_reply_ref: "my-subscription-ref"
-      ...> ).body.ref
-      "my-subscription-ref"
+      ...>   ws_async: true
+      ...> ).private.ws_async_ref
+      iex> is_reference(ref)
+      true
 
   """
   @spec subscribe!(Req.Request.t(), String.t(), keyword) :: Req.Response.t()
   def subscribe!(request, subscription, options \\ [])
 
   def subscribe!(%Req.Request{} = request, subscription, options) do
+    {ws_async, options} = Keyword.split(options, [:ws_async])
+    request = Req.Request.merge_options(request, ws_async)
     response = run!(request, subscription, options ++ [ws_adapter: true])
 
-    case response.body do
-      %AbsintheClient.Subscription{} ->
-        response
+    if Map.get(request.options, :ws_async) do
+      response
+    else
+      case response.body do
+        %AbsintheClient.Subscription{} ->
+          response
 
-      other ->
-        raise ArgumentError,
-              "unexpected response from subscribe/3, " <>
-                "expected AbsintheClient.Subscription.t(), " <>
-                "got: #{inspect(other)}"
+        other ->
+          raise ArgumentError,
+                "unexpected response from subscribe!/3, " <>
+                  "expected AbsintheClient.Subscription.t(), " <>
+                  "got: #{inspect(other)}"
+      end
     end
   end
 
@@ -162,10 +170,13 @@ defmodule AbsintheClient do
     * `:ws_adapter` - When set to `true`, runs the operation
       via the WebSocket adapter. Defaults to `false`.
 
-    * `:ws_reply_ref` - A unique term to track async replies.
-      If set, the caller will receive latent replies from the
-      caller, for instance when a subscription reconnects.
-      Defaults to `nil`.
+    * `:ws_async` - When set to `true`, runs the operation
+      in async mode. The response body will be empty and you
+      will need to receive the `AbsintheClient.WebSocket.Reply`
+      message. Defaults to `false`.
+
+    * `:receive_timeout` - socket receive timeout in milliseconds,
+      defaults to 15_000.
 
   All other options are forwarded to `Req.request/2`.
 

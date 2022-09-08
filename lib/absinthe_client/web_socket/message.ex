@@ -43,18 +43,19 @@ end
 defmodule AbsintheClient.WebSocket.Push do
   # Internal structure to track pushed requests.
   @moduledoc false
+  @type t :: %__MODULE__{}
   defstruct [:event, :pid, :params, :ref]
 
-  def new_doc(query, variables, pid, ref) do
-    new("doc", %{query: query, variables: variables}, pid, ref)
-  end
+  @doc """
+  Returns a new push message.
 
-  def new(event, params, pid, ref) when is_binary(event) and is_map(params) and is_pid(pid) do
-    %__MODULE__{
-      event: event,
-      params: params,
-      pid: pid,
-      ref: ref
-    }
+  ## Examples
+
+      iex> AbsintheClient.WebSocket.Push.new(event: "foo")
+      %AbsintheClient.WebSocket.Push{event: "foo"}
+  """
+  @spec new(options :: keyword()) :: t()
+  def new(options \\ []) do
+    struct!(__MODULE__, options)
   end
 end

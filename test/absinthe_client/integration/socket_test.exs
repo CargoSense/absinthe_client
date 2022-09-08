@@ -23,7 +23,7 @@ defmodule AbsintheClient.Integration.WebSocketTest do
     {:ok, socket_url: AbsintheClientTest.Endpoint.subscription_url()}
   end
 
-  test "push/3 pushes a doc over the socket and receives a reply", %{socket_url: uri, test: ref} do
+  test "push/3 pushes a doc over the socket and receives a reply", %{socket_url: uri} do
     query = """
     query Creator($repository: Repository!) {
       creator(repository: $repository) {
@@ -32,13 +32,9 @@ defmodule AbsintheClient.Integration.WebSocketTest do
     }
     """
 
-    client = start_supervised!({AbsintheClient.WebSocket, {self(), uri: uri}})
+    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
 
-    :ok =
-      AbsintheClient.WebSocket.push(client, query,
-        variables: %{"repository" => "ABSINTHE"},
-        ref: ref
-      )
+    {:ok, ref} = AbsintheClient.WebSocket.push(client, query, %{"repository" => "ABSINTHE"})
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
@@ -47,13 +43,10 @@ defmodule AbsintheClient.Integration.WebSocketTest do
     }
   end
 
-  test "push/3 replies with errors for invalid or unknown operations", %{
-    socket_url: uri,
-    test: ref
-  } do
-    client = start_supervised!({AbsintheClient.WebSocket, {self(), uri: uri}})
+  test "push/3 replies with errors for invalid or unknown operations", %{socket_url: uri} do
+    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
 
-    :ok = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }", ref: ref)
+    {:ok, ref} = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
@@ -68,7 +61,7 @@ defmodule AbsintheClient.Integration.WebSocketTest do
       }
     }
 
-    :ok =
+    {:ok, ref} =
       AbsintheClient.WebSocket.push(
         client,
         """
@@ -77,8 +70,7 @@ defmodule AbsintheClient.Integration.WebSocketTest do
             name
           }
         }
-        """,
-        ref: ref
+        """
       )
 
     assert_receive %AbsintheClient.WebSocket.Reply{

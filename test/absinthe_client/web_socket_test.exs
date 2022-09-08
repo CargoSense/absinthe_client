@@ -3,13 +3,14 @@ defmodule AbsintheClient.WebSocketTest do
   use Slipstream.SocketTest
 
   doctest AbsintheClient.WebSocket
+  doctest AbsintheClient.WebSocket.Message
 
   @control_topic "__absinthe__:control"
 
   test "connects and joins control topic" do
     socket_pid =
       start_supervised!(
-        {AbsintheClient.WebSocket, {self(), uri: "wss://localhost", test_mode?: true}}
+        {AbsintheClient.WebSocket.AbsintheWs, {self(), uri: "wss://localhost", test_mode?: true}}
       )
 
     connect_and_assert_join socket_pid, @control_topic, %{}, :ok
@@ -19,7 +20,7 @@ defmodule AbsintheClient.WebSocketTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = AbsintheClient.WebSocket.push(client, msg)
+    assert {:ok, _} = AbsintheClient.WebSocket.push(client, msg, nil)
     assert_push @control_topic, "doc", %{query: ^msg}
   end
 
@@ -27,20 +28,20 @@ defmodule AbsintheClient.WebSocketTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = AbsintheClient.WebSocket.push(client, msg, variables: %{"foo" => "bar"})
+    assert {:ok, _} = AbsintheClient.WebSocket.push(client, msg, %{"foo" => "bar"})
     assert_push @control_topic, "doc", %{query: ^msg, variables: %{"foo" => "bar"}}
   end
 
-  test "push/3 with ref replies to the caller", %{test: test} do
+  test "push/3 with ref replies to the caller" do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert :ok = AbsintheClient.WebSocket.push(client, msg, ref: test)
+    assert {:ok, ref} = AbsintheClient.WebSocket.push(client, msg)
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :this_is_not_a_real_result})
 
     assert_receive %AbsintheClient.WebSocket.Reply{
-      ref: ^test,
+      ref: ^ref,
       status: :ok,
       payload: :this_is_not_a_real_result
     }
@@ -88,12 +89,12 @@ defmodule AbsintheClient.WebSocketTest do
     }
   end
 
-  test "enqueues on disconnect and re-subscribes on reconnect", %{test: ref} do
+  test "enqueues on disconnect and re-subscribes on reconnect" do
     client = start_client!()
 
     # client: sends subscription to the server
     query = "msg:#{System.unique_integer()}"
-    assert :ok = AbsintheClient.WebSocket.push(client, query, ref: ref)
+    assert {:ok, ref} = AbsintheClient.WebSocket.push(client, query)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
@@ -129,14 +130,14 @@ defmodule AbsintheClient.WebSocketTest do
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
     client_opts = Keyword.put_new(opts, :test_mode?, true)
-    client_pid = start_supervised!({AbsintheClient.WebSocket, {self(), client_opts}})
+    client_pid = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), client_opts}})
     connect_and_assert_join client_pid, @control_topic, %{}, :ok
     client_pid
   end
 
   defp subscribe!(client, query \\ subscription_query()) do
     # client: sends subscription to the server
-    assert :ok = AbsintheClient.WebSocket.push(client, query, ref: ref = make_ref())
+    assert {:ok, ref} = AbsintheClient.WebSocket.push(client, query)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
