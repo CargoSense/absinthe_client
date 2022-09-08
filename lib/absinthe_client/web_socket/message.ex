@@ -51,6 +51,9 @@ defmodule AbsintheClient.WebSocket.Push do
 
   ## Examples
 
+      iex> AbsintheClient.WebSocket.Push.new()
+      %AbsintheClient.WebSocket.Push{}
+
       iex> AbsintheClient.WebSocket.Push.new(event: "foo")
       %AbsintheClient.WebSocket.Push{event: "foo"}
   """

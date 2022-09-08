@@ -3,7 +3,7 @@ defmodule AbsintheClient.WebSocketTest do
   use Slipstream.SocketTest
 
   doctest AbsintheClient.WebSocket
-  doctest AbsintheClient.WebSocket.Message
+  doctest AbsintheClient.WebSocket.Push
 
   @control_topic "__absinthe__:control"
 
