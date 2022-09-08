@@ -70,8 +70,8 @@ defmodule AbsintheClient do
             raise "Received result with errors, got: #{inspect(result["errors"])}"
 
           %{"data" => data} ->
-            name = get_in(result, ~w(data repoCommentSubscribe commentary))
-            IO.inspect(name, label: "Received a new comment")
+            text = get_in(result, ~w(data repoCommentSubscribe commentary))
+            IO.inspect(text, label: "Received a new comment")
         end
 
         {:noreply, state}
