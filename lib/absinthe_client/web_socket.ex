@@ -4,11 +4,11 @@ defmodule AbsintheClient.WebSocket do
 
   AbsintheClient is composed of three main pieces:
 
-    * `AbsintheClient` - the `Req` plugin for GraphQL
+    * `AbsintheClient` - the Absinthe client for GraphQL
 
-    * `AbsintheClient.Steps` - the collection of built-in steps
+    * `AbsintheClient.Steps` - the collection of `Req` steps
 
-    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager (you're here!)
+    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket connection (you're here!)
 
   The WebSocket does the following:
 

@@ -1,14 +1,14 @@
 defmodule AbsintheClient do
   @moduledoc ~S"""
-  The `Req` plugin for GraphQL.
+  The Absinthe client for GraphQL.
 
   AbsintheClient is composed of three main pieces:
 
-    * `AbsintheClient` - the `Req` plugin for GraphQL (you're here!)
+    * `AbsintheClient` - the Absinthe client for GraphQL (you're here!)
 
-    * `AbsintheClient.Steps` - the collection of built-in steps
+    * `AbsintheClient.Steps` - the collection of `Req` steps
 
-    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
+    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket connection
 
   The following examples demonstrate how most users of AbsintheClient will
   make GraphQL requests most of the time.
@@ -51,8 +51,6 @@ defmodule AbsintheClient do
   >
   > AbsintheClient works with servers using
   > [Absinthe subscriptions](https://hexdocs.pm/absinthe/subscriptions.html).
-  > Support for other GraphQL WebSocket protocols is not
-  > planned.
 
   Performing a `subscription` operation:
 

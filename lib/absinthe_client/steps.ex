@@ -1,14 +1,14 @@
 defmodule AbsintheClient.Steps do
   @moduledoc """
-  The collection of built-in steps.
+  The collection of `Req` steps.
 
   AbsintheClient is composed of three main pieces:
 
-    * `AbsintheClient` - the `Req` plugin for GraphQL
+    * `AbsintheClient` - the Absinthe client for GraphQL
 
-    * `AbsintheClient.Steps` - the collection of built-in steps (you're here!)
+    * `AbsintheClient.Steps` - the collection of `Req` steps (you're here!)
 
-    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket subscription manager
+    * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket connection
 
   """
 
