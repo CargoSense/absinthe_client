@@ -38,19 +38,19 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       }
     end
 
-    def handle_info(%AbsintheClient.WebSocket.Reply{ref: ref, result: result}, state) do
+    def handle_info(%AbsintheClient.WebSocket.Reply{} = reply, state) do
       # todo: make this be a %Subscription{}
-      {:ok, %{"subscriptionId" => _}} = result
+      %{status: :ok, payload: %{"subscriptionId" => _}} = reply
 
-      send(state.parent, {:subscription_reply, ref, state.socket})
+      send(state.parent, {:subscription_reply, reply.ref, state.socket})
 
-      new_subs = Map.put(state.refs_to_subs, ref, state.socket)
+      new_subs = Map.put(state.refs_to_subs, reply.ref, state.socket)
 
       {:noreply, %{state | refs_to_subs: new_subs}}
     end
 
-    def handle_info(%AbsintheClient.Subscription.Data{ref: ref} = data, state) do
-      %{"data" => %{"repoCommentSubscribe" => object}} = data.result
+    def handle_info(%AbsintheClient.WebSocket.Message{ref: ref} = data, state) do
+      %{"result" => %{"data" => %{"repoCommentSubscribe" => object}}} = data.payload
 
       case Map.fetch(state.refs_to_subs, ref) do
         {:ok, socket} ->

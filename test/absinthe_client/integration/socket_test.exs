@@ -42,7 +42,8 @@ defmodule AbsintheClient.Integration.WebSocketTest do
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
-      result: {:ok, %{"data" => %{"creator" => %{"name" => "Ben Wilson"}}}}
+      payload: %{"data" => %{"creator" => %{"name" => "Ben Wilson"}}},
+      status: :ok
     }
   end
 
@@ -56,16 +57,15 @@ defmodule AbsintheClient.Integration.WebSocketTest do
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
-      result:
-        {:error,
-         %{
-           "errors" => [
-             %{
-               "locations" => [%{"column" => 9, "line" => 1}],
-               "message" => "Cannot query field \"doesNotExist\" on type \"RootQueryType\"."
-             }
-           ]
-         }}
+      status: :error,
+      payload: %{
+        "errors" => [
+          %{
+            "locations" => [%{"column" => 9, "line" => 1}],
+            "message" => "Cannot query field \"doesNotExist\" on type \"RootQueryType\"."
+          }
+        ]
+      }
     }
 
     :ok =
@@ -83,21 +83,19 @@ defmodule AbsintheClient.Integration.WebSocketTest do
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
-      result:
-        {:error,
-         %{
-           "errors" => [
-             %{
-               "locations" => [%{"column" => 11, "line" => 2}],
-               "message" =>
-                 "In argument \"repository\": Expected type \"Repository!\", found null."
-             },
-             %{
-               "locations" => [%{"column" => 15, "line" => 1}],
-               "message" => "Variable \"repository\": Expected non-null, found null."
-             }
-           ]
-         }}
+      status: :error,
+      payload: %{
+        "errors" => [
+          %{
+            "locations" => [%{"column" => 11, "line" => 2}],
+            "message" => "In argument \"repository\": Expected type \"Repository!\", found null."
+          },
+          %{
+            "locations" => [%{"column" => 15, "line" => 1}],
+            "message" => "Variable \"repository\": Expected non-null, found null."
+          }
+        ]
+      }
     }
   end
 

@@ -68,8 +68,8 @@ defmodule AbsintheClient do
 
   Receiving the subscription data, for example on a `GenServer`:
 
-      def handle_info(%AbsintheClient.Subscription.Data{result: result}, state) do
-        case result do
+      def handle_info(%AbsintheClient.WebSocket.Message{payload: payload}, state) do
+        case payload["result"] do
           %{"errors" => errors} ->
             raise "Received result with errors, got: #{inspect(result["errors"])}"
 

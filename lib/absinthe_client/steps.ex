@@ -177,8 +177,8 @@ defmodule AbsintheClient.Steps do
   end
 
   defp transform_ws_reply(%Req.Request{} = req, %AbsintheClient.WebSocket.Reply{} = reply) do
-    case reply.result do
-      {:ok, %{"subscriptionId" => subscription_id}} ->
+    case reply do
+      %{status: :ok, payload: %{"subscriptionId" => subscription_id}} ->
         %AbsintheClient.Subscription{
           socket: req.private.absinthe_client_ws,
           ref: reply.ref,

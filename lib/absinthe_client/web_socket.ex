@@ -89,11 +89,11 @@ defmodule AbsintheClient.WebSocket do
   ## Handling subscription messages
 
   Results will be sent to the caller in the form of
-  [`Subscription.Data`](`AbsintheClient.Subscription.Data`) structs.
+  [`WebSocket.Message`](`AbsintheClient.WebSocket.Message`) structs.
 
   In a `GenServer` for instance, you would implement `handle_info/2` callback:
 
-      def handle_info(%AbsintheClient.Subscription.Data{id: _topic, result: payload}, state) do
+      def handle_info(%AbsintheClient.WebSocket.Message{payload: payload}, state) do
         # code...
         {:noreply, state}
       end
@@ -113,7 +113,7 @@ defmodule AbsintheClient.WebSocket do
   ...and handle the reply:
 
       receive do
-        %AbsintheClient.WebSocket.Reply{ref: "get-item-ref", result: result} ->
+        %AbsintheClient.WebSocket.Reply{ref: "get-item-ref", payload: payload} ->
           # do something with result...
       after
         5_000 ->
@@ -261,10 +261,16 @@ defmodule AbsintheClient.WebSocket do
   end
 
   @impl Slipstream
-  def handle_message(topic, "subscription:data", %{"result" => result}, socket) do
+  def handle_message(topic, "subscription:data" = event, %{"result" => _} = payload, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
       {:ok, %Push{ref: ref, pid: pid}} ->
-        message = %AbsintheClient.Subscription.Data{ref: ref, result: result}
+        message = %AbsintheClient.WebSocket.Message{
+          topic: topic,
+          event: event,
+          payload: payload,
+          ref: ref
+        }
+
         send(pid, message)
 
       _ ->
@@ -280,7 +286,7 @@ defmodule AbsintheClient.WebSocket do
   def handle_reply(push_ref, result, socket) do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
       {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
-        if push.ref, do: send(pid, %Reply{event: push.event, ref: push.ref, result: result})
+        if push.ref, do: send(pid, reply(push, push_ref, result))
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
 
@@ -294,6 +300,14 @@ defmodule AbsintheClient.WebSocket do
         {:ok, socket}
     end
   end
+
+  defp reply(%Push{} = push, push_ref, result),
+    do: reply(%Reply{event: push.event, ref: push.ref, push_ref: push_ref}, result)
+
+  defp reply(reply, :ok), do: %Reply{reply | status: :ok, payload: nil}
+  defp reply(reply, :error), do: %Reply{reply | status: :error, payload: nil}
+  defp reply(reply, {:ok, payload}), do: %Reply{reply | status: :ok, payload: payload}
+  defp reply(reply, {:error, payload}), do: %Reply{reply | status: :error, payload: payload}
 
   defp maybe_update_subscriptions(socket, %{event: "unsubscribe"}, _result) do
     socket
@@ -321,12 +335,7 @@ defmodule AbsintheClient.WebSocket do
     case push_message(socket, push) do
       {:ok, ref} ->
         result = Slipstream.await_reply(ref, timeout)
-
-        reply = %AbsintheClient.WebSocket.Reply{
-          event: "doc",
-          ref: push.ref,
-          result: result
-        }
+        reply = reply(push, ref, result)
 
         {:reply, {:ok, reply}, maybe_update_subscriptions(socket, push, result)}
 

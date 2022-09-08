@@ -75,7 +75,7 @@ defmodule Absinthe.Socket.MixProject do
 
         Structures: [
           AbsintheClient.Subscription,
-          AbsintheClient.Subscription.Data,
+          AbsintheClient.WebSocket.Message,
           AbsintheClient.WebSocket.Reply
         ]
       ]
