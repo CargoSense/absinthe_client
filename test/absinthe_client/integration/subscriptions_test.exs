@@ -76,7 +76,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
           """,
           variables: %{"repository" => name},
           ws_reply_ref: ref = "subscription-#{System.unique_integer()}"
-        )
+        ).body
 
       %AbsintheClient.Subscription{socket: socket, ref: ^ref} = subscription
 

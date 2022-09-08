@@ -28,11 +28,11 @@ defmodule AbsintheClient.WebSocket do
   Using the `:ws_reply_ref` option to receive replies:
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
-      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body.payload["data"]
+      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
-      iex> AbsintheClient.run!(client, ~S| __type(name: "Repo") { name } }|).body.payload["errors"]
+      iex> AbsintheClient.run!(client, ~S| __type(name: "Repo") { name } }|).body["errors"]
       [%{"locations" => [%{"column" => 2, "line" => 1}], "message" => "syntax error before: \\"__type\\""}]
 
   Performing a `subscription` operation without receiving replies:
@@ -42,7 +42,7 @@ defmodule AbsintheClient.WebSocket do
       ...>   client,
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"}
-      ...> ).ref
+      ...> ).body.ref
       nil
 
   """

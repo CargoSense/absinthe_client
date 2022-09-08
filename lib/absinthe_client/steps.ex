@@ -171,11 +171,25 @@ defmodule AbsintheClient.Steps do
         {request, exception}
 
       {:ok, %AbsintheClient.WebSocket.Reply{} = reply} ->
-        {request, Req.Response.new(body: transform_ws_reply(request, reply))}
+        {request, reply_response(request, reply)}
     end
   end
 
-  defp transform_ws_reply(%Req.Request{} = req, %AbsintheClient.WebSocket.Reply{} = reply) do
+  defp reply_response(%Req.Request{} = req, %AbsintheClient.WebSocket.Reply{} = reply) do
+    Req.Response.new(
+      status: ws_response_status(reply.status),
+      body: ws_response_body(req, reply),
+      private: %{
+        ws_push_ref: reply.push_ref,
+        ws_reply_ref: reply.ref
+      }
+    )
+  end
+
+  defp ws_response_status(:ok), do: 200
+  defp ws_response_status(:error), do: 500
+
+  defp ws_response_body(req, reply) do
     case reply do
       %{status: :ok, payload: %{"subscriptionId" => subscription_id}} ->
         %AbsintheClient.Subscription{
@@ -185,7 +199,7 @@ defmodule AbsintheClient.Steps do
         }
 
       _ ->
-        reply
+        reply.payload
     end
   end
 

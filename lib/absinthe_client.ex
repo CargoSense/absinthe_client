@@ -55,14 +55,12 @@ defmodule AbsintheClient do
   Performing a `subscription` operation:
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
-      iex> subscription =
-      ...>   AbsintheClient.subscribe!(
-      ...>     client,
-      ...>     "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
-      ...>     variables: %{"repository" => "ELIXIR"}
-      ...>   )
-      iex> String.starts_with?(subscription.id, "__absinthe__")
-      true
+      iex> AbsintheClient.subscribe!(
+      ...>   client,
+      ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
+      ...>   variables: %{"repository" => "ELIXIR"}
+      ...> ).body.__struct__
+      AbsintheClient.Subscription
 
   Receiving the subscription data, for example on a `GenServer`:
 
@@ -85,6 +83,11 @@ defmodule AbsintheClient do
 
   Refer to `run/2` for a list of supported options.
 
+  ## Examples
+
+        iex> _client = AbsintheClient.attach(Req.new(base_url: "https://rickandmortyapi.com"))
+
+        iex> _client = AbsintheClient.attach(Req.new(base_url: "https://localhost:8001"), ws_adapter: true)
   """
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
@@ -121,7 +124,7 @@ defmodule AbsintheClient do
       ...>   client,
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"}
-      ...> ).ref
+      ...> ).body.ref
       nil
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
@@ -130,20 +133,19 @@ defmodule AbsintheClient do
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"},
       ...>   ws_reply_ref: "my-subscription-ref"
-      ...> ).ref
+      ...> ).body.ref
       "my-subscription-ref"
 
   """
-  @spec subscribe!(Req.Request.t(), String.t(), keyword) ::
-          AbsintheClient.Subscription.t()
+  @spec subscribe!(Req.Request.t(), String.t(), keyword) :: Req.Response.t()
   def subscribe!(request, subscription, options \\ [])
 
   def subscribe!(%Req.Request{} = request, subscription, options) do
     response = run!(request, subscription, [ws_adapter: true] ++ options)
 
     case response.body do
-      %AbsintheClient.Subscription{} = subscription ->
-        subscription
+      %AbsintheClient.Subscription{} ->
+        response
 
       other ->
         raise ArgumentError,
@@ -176,14 +178,18 @@ defmodule AbsintheClient do
 
   ## Examples
 
+  HTTP request:
+
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
       iex> {:ok, response} = AbsintheClient.run(client, "query{}")
       iex> response.status
       200
 
+  WebSocket request:
+
       iex> client = AbsintheClient.attach(Req.new(base_url: "ws://localhost:8001"))
       iex> {:ok, response} = AbsintheClient.run(client, "query{}", ws_adapter: true)
-      iex> response.body.payload["errors"]
+      iex> response.body["errors"]
       [%{"locations" => [%{"column" => 7, "line" => 1}], "message" => "syntax error before: '}'"}]
 
   """
