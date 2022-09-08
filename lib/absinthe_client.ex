@@ -138,23 +138,27 @@ defmodule AbsintheClient do
 
   ## Examples
 
+  Synchronous subscription:
+
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
-      iex> ref = AbsintheClient.subscribe!(
+      iex> response = AbsintheClient.subscribe!(
       ...>   client,
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"}
-      ...> ).body.ref
-      iex> is_reference(ref)
+      ...> )
+      iex> is_struct(response.body, AbsintheClient.Subscription)
       true
 
+  Asynchronous subscription:
+
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
-      iex> ref = AbsintheClient.subscribe!(
+      iex> response = AbsintheClient.subscribe!(
       ...>   client,
       ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
       ...>   variables: %{"repository" => "ELIXIR"},
       ...>   ws_async: true
-      ...> ).private.ws_async_ref
-      iex> is_reference(ref)
+      ...> )
+      iex> is_reference(response.body)
       true
 
   """

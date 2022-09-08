@@ -191,7 +191,7 @@ defmodule AbsintheClient.Steps do
     {:ok, ref} = AbsintheClient.WebSocket.push(socket_name, query, variables)
 
     if Map.get(request.options, :ws_async) do
-      {request, Req.Response.new(private: %{ws_async_ref: ref})}
+      {request, Req.Response.new(body: ref)}
     else
       receive_timeout = Map.get(request.options, :receive_timeout, 15_000)
 
@@ -209,10 +209,7 @@ defmodule AbsintheClient.Steps do
     Req.Response.new(
       status: ws_response_status(reply.status),
       body: ws_response_body(req, reply),
-      private: %{
-        ws_async_ref: reply.ref,
-        ws_push_ref: reply.push_ref
-      }
+      private: %{ws_push_ref: reply.push_ref}
     )
   end
 

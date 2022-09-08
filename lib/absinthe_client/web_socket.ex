@@ -34,10 +34,8 @@ defmodule AbsintheClient.WebSocket do
   Performing an async `query` operation and awaiting the reply:
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true, ws_async: true)
-      iex> res = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|)
-      iex> res.body
-      ""
-      iex> AbsintheClient.WebSocket.await_reply!(res.private.ws_async_ref).payload["data"]
+      iex> response = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|)
+      iex> AbsintheClient.WebSocket.await_reply!(response).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
 
   """
@@ -118,12 +116,20 @@ defmodule AbsintheClient.WebSocket do
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true, ws_async: true)
-      iex> ref = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).private.ws_async_ref
-      iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(ref)
+      iex> {:ok, response} = AbsintheClient.run(client, ~S|{ __type(name: "Repo") { name } }|)
+      iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(response)
       iex> reply.payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  def await_reply(ref, timeout \\ 5000) do
+  @spec await_reply(Req.Response.t() | reference(), non_neg_integer()) ::
+          AbsintheClient.WebSocket.Reply.t()
+  def await_reply(response_or_ref, timeout \\ 5000)
+
+  def await_reply(%Req.Response{body: ref}, timeout) when is_reference(ref) do
+    await_reply(ref, timeout)
+  end
+
+  def await_reply(ref, timeout) when is_reference(ref) do
     receive do
       %Reply{ref: ^ref} = reply ->
         {:ok, reply}
@@ -139,11 +145,19 @@ defmodule AbsintheClient.WebSocket do
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true, ws_async: true)
-      iex> ref = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).private.ws_async_ref
-      iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
+      iex> response = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|)
+      iex> AbsintheClient.WebSocket.await_reply!(response).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  def await_reply!(ref, timeout \\ 5000) do
+  @spec await_reply!(Req.Response.t() | reference(), non_neg_integer()) ::
+          AbsintheClient.WebSocket.Reply.t()
+  def await_reply!(response_or_ref, timeout \\ 5000)
+
+  def await_reply!(%Req.Response{body: ref}, timeout) when is_reference(ref) do
+    await_reply!(ref, timeout)
+  end
+
+  def await_reply!(ref, timeout) when is_reference(ref) do
     case await_reply(ref, timeout) do
       {:ok, reply} -> reply
       {:error, :timeout} -> raise RuntimeError, "timeout"
