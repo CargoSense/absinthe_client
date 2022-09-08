@@ -95,7 +95,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   def handle_reply(push_ref, result, socket) do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
       {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
-        if push.ref, do: send(pid, reply(push, push_ref, result))
+        if push.pushed_counter == 1, do: send(pid, reply(push, push_ref, result))
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
 
@@ -201,7 +201,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     update(socket, :inflight, fn inflight ->
       Enum.reduce(messages, inflight, fn op, acc ->
         {:ok, push_ref} = push_message(socket, op)
-        Map.put(acc, push_ref, op)
+        Map.put(acc, push_ref, %{op | pushed_counter: op.pushed_counter + 1})
       end)
     end)
   end

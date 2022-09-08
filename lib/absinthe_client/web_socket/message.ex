@@ -44,7 +44,7 @@ defmodule AbsintheClient.WebSocket.Push do
   # Internal structure to track pushed requests.
   @moduledoc false
   @type t :: %__MODULE__{}
-  defstruct [:event, :pid, :params, :ref]
+  defstruct [:event, :pid, :params, :ref, pushed_counter: 0]
 
   @doc """
   Returns a new push message.

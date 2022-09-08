@@ -6,20 +6,6 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
     def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
 
-    def subscribe(pid, {:repo, _} = arg) do
-      GenServer.call(pid, {:subscribe, arg})
-    end
-
-    def trigger_disconnect(pid) do
-      GenServer.call(pid, :trigger_disconnect)
-    end
-
-    def trigger_clear_subscriptions(pid) do
-      GenServer.call(pid, :trigger_clear_subscriptions)
-    end
-
-    ## Private
-
     def init({client, parent}) do
       # Applies the URI changes to the client so we can connect early.
       client =
@@ -32,34 +18,23 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       client = update_in(client.options, &Map.delete(&1, :base_url))
       socket_name = AbsintheClient.WebSocket.connect(client.url)
 
-      {
-        :ok,
-        %{parent: parent, client: client, socket: socket_name, refs_to_subs: %{}}
-      }
+      {:ok, %{parent: parent, client: client, socket: socket_name}}
     end
 
+    # todo: remove handle_info for reply when clear_subscriptions/1 can be awaited on
     def handle_info(%AbsintheClient.WebSocket.Reply{} = reply, state) do
       # todo: make this be a %Subscription{}
       %{status: :ok, payload: %{"subscriptionId" => _}} = reply
 
       send(state.parent, {:subscription_reply, reply.ref, state.socket})
 
-      new_subs = Map.put(state.refs_to_subs, reply.ref, state.socket)
-
-      {:noreply, %{state | refs_to_subs: new_subs}}
+      {:noreply, state}
     end
 
     def handle_info(%AbsintheClient.WebSocket.Message{ref: ref} = data, state) do
       %{"result" => %{"data" => %{"repoCommentSubscribe" => object}}} = data.payload
-
-      case Map.fetch(state.refs_to_subs, ref) do
-        {:ok, socket} ->
-          send(state.parent, {:subscription_data, ref, socket, object})
-          {:noreply, state}
-
-        :error ->
-          {:noreply, state}
-      end
+      send(state.parent, {:subscription_data, ref, state.socket, object})
+      {:noreply, state}
     end
 
     def handle_call({:subscribe, {:repo, name}}, _, state) do
@@ -77,33 +52,38 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
           variables: %{"repository" => name}
         ).body
 
-      %AbsintheClient.Subscription{socket: socket, ref: ref} = subscription
+      %AbsintheClient.Subscription{ref: ref} = subscription
 
-      send(state.parent, {:subscription_reply, ref, socket})
+      send(state.parent, {:subscription_reply, ref, state.socket})
 
-      new_subs = Map.put(state.refs_to_subs, ref, socket)
-
-      {:reply, {:ok, ref}, %{state | refs_to_subs: new_subs}}
+      {:reply, {:ok, ref}, state}
     end
 
-    def handle_call(:trigger_disconnect, _from, state) do
-      %Slipstream.Socket{} = socket = :sys.get_state(state.socket)
-      ref = Process.monitor(socket.channel_pid)
-      Slipstream.disconnect(socket)
+    def handle_call({:run, func}, _from, state), do: func.(state)
 
-      receive do
-        {:DOWN, ^ref, :process, _object, _reason} ->
-          {:reply, :ok, state}
-      after
-        1_000 ->
-          raise RuntimeError,
-                "expected channel pid #{inspect(socket.channel_pid)} to be killed, but it was not"
-      end
+    def run(pid, func) do
+      GenServer.call(pid, {:run, func})
     end
 
-    def handle_call(:trigger_clear_subscriptions, _from, state) do
-      AbsintheClient.WebSocket.clear_subscriptions(state.socket, ref = make_ref())
-      {:reply, ref, state}
+    def subscribe(pid, {:repo, _} = arg) do
+      GenServer.call(pid, {:subscribe, arg})
+    end
+
+    def trigger_disconnect(pid) do
+      run(pid, fn state ->
+        %Slipstream.Socket{} = socket = :sys.get_state(state.socket)
+        ref = Process.monitor(socket.channel_pid)
+        Slipstream.disconnect(socket)
+
+        receive do
+          {:DOWN, ^ref, :process, _object, _reason} ->
+            {:reply, :ok, state}
+        after
+          1_000 ->
+            raise RuntimeError,
+                  "expected channel pid #{inspect(socket.channel_pid)} to be killed, but it was not"
+        end
+      end)
     end
   end
 
@@ -207,7 +187,12 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
                     %{"id" => ^abs_comment_id, "commentary" => ^abs_commentary}}
 
     # Unsubscribes from the ABSINTHE repository and subscribes to the PHOENIX repository.
-    clear_subscriptions_ref = CommentSubscriber.trigger_clear_subscriptions(subscriber_pid)
+    clear_subscriptions_ref =
+      CommentSubscriber.run(subscriber_pid, fn state ->
+        AbsintheClient.WebSocket.clear_subscriptions(state.socket, ref = make_ref())
+        {:reply, ref, state}
+      end)
+
     assert_receive {:subscription_reply, ^clear_subscriptions_ref, ^abs_subscription_id}
 
     {:ok, phx_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
@@ -257,14 +242,26 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
     :ok = CommentSubscriber.trigger_disconnect(subscriber_pid)
 
-    assert_receive {:subscription_reply, ^ref, new_subscription_id}
+    refute_receive {:subscription_reply, ^ref, _}
 
     new_text = String.duplicate(text, 2)
 
     new_comment_id =
       CommentPublisher.publish!(publisher_pid, repository: repo, commentary: new_text)
 
-    assert_receive {:subscription_data, ^ref, ^new_subscription_id,
+    assert_receive {:subscription_data, ^ref, _,
                     %{"id" => ^new_comment_id, "commentary" => ^new_text}}
+  end
+
+  test "rejoins do not send replies", %{url: url} do
+    client = Req.new(url: url) |> AbsintheClient.attach()
+    subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
+
+    {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
+    assert_receive {:subscription_reply, ^ref, _}
+
+    :ok = CommentSubscriber.trigger_disconnect(subscriber_pid)
+
+    refute_receive {:subscription_reply, ^ref, _}
   end
 end

@@ -117,12 +117,6 @@ defmodule AbsintheClient.WebSocketTest do
     assert_push @control_topic, "doc", %{query: ^query}, resub_ref, 1000
     reply(client, resub_ref, {:ok, %{"subscriptionId" => resub_id = sub_id(client)}})
 
-    assert_receive %AbsintheClient.WebSocket.Reply{
-      ref: ^ref,
-      payload: %{"subscriptionId" => ^resub_id},
-      status: :ok
-    }
-
     expected_result = %{"result" => %{"id" => result_id(client)}}
     push(client, resub_id, "subscription:data", expected_result)
     assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_result}
