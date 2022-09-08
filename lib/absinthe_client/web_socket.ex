@@ -12,12 +12,12 @@ defmodule AbsintheClient.WebSocket do
 
   The WebSocket does the following:
 
-    * Manages subscriptions received, including automatically
-      replaying subscription requests in the event of a
-      connection loss.
+    * Pushes documents to the GraphQL server and forwards
+      replies to the callers.
 
-    * Forwards replies and subscription messages to the
-      calling process.
+    * Manages any subscriptions received, including
+      automatically re-subscribing in the event of a
+      connection loss.
 
   Under the hood, WebSocket connections are `Slipstream`
   socket processes which are usually managed by an internal
@@ -25,11 +25,25 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> {:ok, ws} = DynamicSupervisor.start_child(AbsintheClient.SocketSupervisor,
-      ...>   {AbsintheClient.WebSocket, {self(), uri: "ws://localhost:8001"}}
-      ...> )
-      iex> Process.alive?(ws)
-      true
+  Using the `:ws_reply_ref` option to receive replies:
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body.payload["data"]
+      %{"__type" => %{"name" => "Repo"}}
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> AbsintheClient.run!(client, ~S| __type(name: "Repo") { name } }|).body.payload["errors"]
+      [%{"locations" => [%{"column" => 2, "line" => 1}], "message" => "syntax error before: \\"__type\\""}]
+
+  Performing a `subscription` operation without receiving replies:
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
+      iex> AbsintheClient.subscribe!(
+      ...>   client,
+      ...>   "subscription($repository: Repository!){ repoCommentSubscribe(repository: $repository){ id commentary } }",
+      ...>   variables: %{"repository" => "ELIXIR"}
+      ...> ).ref
+      nil
 
   """
   use Slipstream, restart: :temporary

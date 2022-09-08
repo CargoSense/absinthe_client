@@ -89,7 +89,7 @@ defmodule AbsintheClient do
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
     request
-    |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_reply_ref, :ws_scheme])
+    |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_reply_ref])
     |> Req.Request.merge_options(options)
     |> Req.Request.append_request_steps(
       encode_operation: &AbsintheClient.Steps.encode_operation/1,
@@ -139,17 +139,7 @@ defmodule AbsintheClient do
   def subscribe!(request, subscription, options \\ [])
 
   def subscribe!(%Req.Request{} = request, subscription, options) do
-    response =
-      run!(
-        request,
-        subscription,
-        [
-          ws_adapter: true,
-          ws_scheme: true,
-          method: AbsintheClient.WebSocket,
-          retry: &subscribe_retry/1
-        ] ++ options
-      )
+    response = run!(request, subscription, [ws_adapter: true] ++ options)
 
     case response.body do
       %AbsintheClient.Subscription{} = subscription ->
@@ -162,9 +152,6 @@ defmodule AbsintheClient do
                 "got: #{inspect(other)}"
     end
   end
-
-  defp subscribe_retry(%AbsintheClient.NotJoinedError{}), do: true
-  defp subscribe_retry(_), do: false
 
   @doc """
   Runs a GraphQL operation and returns a response.
@@ -185,10 +172,6 @@ defmodule AbsintheClient do
       caller, for instance when a subscription reconnects.
       Defaults to `nil`.
 
-    * `:ws_scheme` - When set to `true`, overrides the URI
-      scheme to be the WebSocket version (i.e `"https"` becomes
-      `"wss"`). Defaults to `false`.
-
   All other options are forwarded to `Req.request/2`.
 
   ## Examples
@@ -199,9 +182,9 @@ defmodule AbsintheClient do
       200
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "ws://localhost:8001"))
-      iex> {:error, error} = AbsintheClient.run(client, "query{}", ws_adapter: true)
-      iex> error.message
-      "not joined"
+      iex> {:ok, response} = AbsintheClient.run(client, "query{}", ws_adapter: true)
+      iex> response.body.payload["errors"]
+      [%{"locations" => [%{"column" => 7, "line" => 1}], "message" => "syntax error before: '}'"}]
 
   """
   @spec run(Req.Request.t(), String.t(), keyword) ::

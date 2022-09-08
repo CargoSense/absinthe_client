@@ -24,7 +24,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       # Applies the URI changes to the client so we can connect early.
       client =
         client
-        |> Req.Request.merge_options(ws_scheme: true)
+        |> Req.Request.merge_options(ws_adapter: true)
         |> Req.Steps.put_base_url()
         |> AbsintheClient.Steps.put_ws_scheme()
         |> AbsintheClient.Steps.put_graphql_path()

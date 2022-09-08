@@ -47,14 +47,14 @@ defmodule AbsintheClient.Steps do
     encode_json(request, %{query: query, variables: variables})
   end
 
-  defp encode_operation(request, AbsintheClient.WebSocket, query, variables) do
-    encode_json(request, %{query: query, variables: variables})
-  end
-
-  # remove once we support :get request formatting
-  defp encode_operation(_request, method, _query, _variables) do
-    raise ArgumentError,
-          "invalid request method, expected :post, got: #{inspect(method)}"
+  defp encode_operation(request, method, query, variables) do
+    if request.options[:ws_adapter] do
+      encode_json(request, %{query: query, variables: variables})
+    else
+      # remove once we support :get request formatting
+      raise ArgumentError,
+            "invalid request method, expected :post, got: #{inspect(method)}"
+    end
   end
 
   defp encode_json(request, body) do
@@ -68,25 +68,24 @@ defmodule AbsintheClient.Steps do
 
   ## Request options
 
+    * `:ws_adapter` - If set to `true`, then the request path
+      defaults to `"/socket/websocket"`. Defaults to `false`.
+
     * `:url` - If set, the path to set on the request.
-      Defaults to `"/graphql"` for http schemes and
-      `"/socket/websocket"` for ws schemes.
+      Defaults to `"/graphql"`.
   """
   @doc step: :request
   def put_graphql_path(%Req.Request{} = request) do
-    scheme = request.url.scheme
+    cond do
+      _ = request.url.path ->
+        request
 
-    update_in(request.url.path, fn
-      nil ->
-        cond do
-          is_nil(scheme) -> nil
-          String.starts_with?(scheme, "http") -> "/graphql"
-          String.starts_with?(scheme, "ws") -> "/socket/websocket"
-        end
+      _ = request.options[:ws_adapter] ->
+        put_in(request.url.path, "/socket/websocket")
 
-      path ->
-        path
-    end)
+      true ->
+        put_in(request.url.path, "/graphql")
+    end
   end
 
   @doc """
@@ -123,7 +122,7 @@ defmodule AbsintheClient.Steps do
   """
   @doc step: :request
   def put_ws_scheme(%Req.Request{} = request) do
-    case Map.fetch(request.options, :ws_scheme) do
+    case Map.fetch(request.options, :ws_adapter) do
       {:ok, true} -> put_ws_scheme(request, ws_scheme(request.url))
       {:ok, false} -> request
       :error -> request
@@ -159,7 +158,7 @@ defmodule AbsintheClient.Steps do
   """
   @doc step: :request
   def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    request = put_ws_scheme(request, ws_scheme(request.url))
+    request = retryable_ws_request(request)
     socket_name = AbsintheClient.WebSocket.connect(self(), request.url)
     request = Req.Request.put_private(request, :absinthe_client_ws, socket_name)
 
@@ -189,4 +188,13 @@ defmodule AbsintheClient.Steps do
         reply
     end
   end
+
+  defp retryable_ws_request(%Req.Request{} = request) do
+    update_in(request.options, fn opts ->
+      Map.put_new(opts, :retry, &ws_retry/1)
+    end)
+  end
+
+  def ws_retry(%AbsintheClient.NotJoinedError{}), do: true
+  def ws_retry(_), do: false
 end
