@@ -25,7 +25,7 @@ defmodule AbsintheClient.StepsTest do
     assert_raise ArgumentError, "invalid request method, expected :post, got: :get", fn ->
       Req.new()
       |> AbsintheClient.attach()
-      |> Req.request!(query: "query GetItem{ getItem{ id } }")
+      |> Req.get!(query: "query GetItem{ getItem{ id } }")
     end
   end
 

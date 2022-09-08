@@ -85,13 +85,19 @@ defmodule AbsintheClient do
 
   ## Examples
 
-      AbsintheClient.attach(Req.new(base_url: "http://example.com"))
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://example.com"))
+      iex> client.method
+      :post
 
-      AbsintheClient.attach(Req.new(base_url: "http://example.com"), ws_adapter: true)
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://example.com"), ws_adapter: true)
+      iex> client.method
+      :post
+
   """
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
-    request
+    # todo: remove when we support :get requests
+    %{request | method: :post}
     |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_async])
     |> Req.Request.merge_options(options)
     |> Req.Request.append_request_steps(
