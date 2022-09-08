@@ -25,15 +25,11 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-  Using the `:ws_reply_ref` option to receive replies:
+  Performing a `query` operation over a WebSocket:
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
       iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
-
-      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
-      iex> AbsintheClient.run!(client, ~S| __type(name: "Repo") { name } }|).body["errors"]
-      [%{"locations" => [%{"column" => 2, "line" => 1}], "message" => "syntax error before: \\"__type\\""}]
 
   Performing a `subscription` operation without receiving replies:
 

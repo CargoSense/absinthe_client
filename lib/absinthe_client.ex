@@ -64,17 +64,17 @@ defmodule AbsintheClient do
 
   Receiving the subscription data, for example on a `GenServer`:
 
-      def handle_info(%AbsintheClient.WebSocket.Message{payload: payload}, state) do
+      def handle_info(%AbsintheClient.WebSocket.Message{event: "subscription:data", payload: payload}, state) do
         case payload["result"] do
           %{"errors" => errors} ->
             raise "Received result with errors, got: #{inspect(result["errors"])}"
 
           %{"data" => data} ->
-            name = get_in(result, ~w(data subscribeToAllThings name)) do
-            IO.puts("Received new thing named #{name}")
-
-            {:noreply, state}
+            name = get_in(result, ~w(data subscribeToAllThings name))
+            IO.inspect(name, label: "Received a thing with name")
         end
+
+        {:noreply, state}
       end
   """
 
@@ -85,9 +85,9 @@ defmodule AbsintheClient do
 
   ## Examples
 
-        iex> _client = AbsintheClient.attach(Req.new(base_url: "https://rickandmortyapi.com"))
+      AbsintheClient.attach(Req.new(base_url: "http://example.com"))
 
-        iex> _client = AbsintheClient.attach(Req.new(base_url: "https://localhost:8001"), ws_adapter: true)
+      AbsintheClient.attach(Req.new(base_url: "http://example.com"), ws_adapter: true)
   """
   @spec attach(Req.Request.t(), keyword) :: Req.Request.t()
   def attach(%Req.Request{} = request, options \\ []) do
@@ -105,17 +105,10 @@ defmodule AbsintheClient do
   @doc """
   Performs a `subscription` operation.
 
-  By default, the subscription operation is performed over a
-  WebSocket connection. Refer to `run/2` for a list of
-  supported options.
+  Note this operation must be performed by the WebSocket
+  adapter.
 
-  ## Retries
-
-  Note that due to the async nature of the WebSocket
-  connection process, this function will retry the message
-  if an `AbsintheClient.NotJoinedError` is returned.
-
-  Consult the `Req.request/1` retry options for more information.
+  Refer to `run/2` for a list of supported options.
 
   ## Examples
 
@@ -141,7 +134,7 @@ defmodule AbsintheClient do
   def subscribe!(request, subscription, options \\ [])
 
   def subscribe!(%Req.Request{} = request, subscription, options) do
-    response = run!(request, subscription, [ws_adapter: true] ++ options)
+    response = run!(request, subscription, options ++ [ws_adapter: true])
 
     case response.body do
       %AbsintheClient.Subscription{} ->
@@ -182,8 +175,8 @@ defmodule AbsintheClient do
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
       iex> {:ok, response} = AbsintheClient.run(client, "query{}")
-      iex> response.status
-      200
+      iex> response.body["errors"]
+      [%{"locations" => [%{"column" => 7, "line" => 1}], "message" => "syntax error before: '}'"}]
 
   WebSocket request:
 

@@ -116,9 +116,9 @@ defmodule AbsintheClient.Steps do
 
   ## Examples
 
-      iex> client = AbsintheClient.attach(Req.new(base_url: "https://rickandmortyapi.com"))
-      iex> AbsintheClient.run!(client, "query { character(id: 1) { name } }").body["data"]
-      %{"character" => %{"name" => "Rick Sanchez"}}
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      %{"__type" => %{"name" => "Repo"}}
   """
   @doc step: :request
   def put_ws_scheme(%Req.Request{} = request) do
@@ -150,6 +150,14 @@ defmodule AbsintheClient.Steps do
   using HTTP for queries and mutations. This is because
   queries and mutations are not stateful so they are more
   suited to HTTP and will scale better there in most cases.
+
+  ## Retries
+
+  Note that due to the asynchronous nature of the WebSocket
+  connection process, by default this function will retry the
+  message if an `AbsintheClient.NotJoinedError` is returned.
+
+  Consult the `Req.request/1` retry options for more information.
 
   ## Examples
 
