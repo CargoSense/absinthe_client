@@ -150,25 +150,8 @@ defmodule AbsintheClient.WebSocket do
     end
   end
 
-  @doc """
-  Clears all subscriptions on the given socket.
-
-  Subscriptions are cleared asynchronously. This function
-  always returns `:ok`.
-
-  ## Receiving replies
-
-  Similar to `push/3`, you can have unsubscribe replies sent
-  to the caller by providing a `ref` as the second argument
-  to `clear_subscriptions/2`.
-
-  ## Examples
-
-      AbsintheClient.WebSocket.clear_subscriptions(socket)
-
-      AbsintheClient.WebSocket.clear_subscriptions(socket, "my-unsubscribe-ref")
-
-  """
+  # Clears all subscriptions on the given socket.
+  @doc false
   @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
   @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | term()) :: :ok
   def clear_subscriptions(socket, ref \\ nil) do
