@@ -122,7 +122,7 @@ defmodule AbsintheClient.WebSocket do
       %{"__type" => %{"name" => "Repo"}}
   """
   @spec await_reply(Req.Response.t() | reference(), non_neg_integer()) ::
-          AbsintheClient.WebSocket.Reply.t()
+          {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, :timeout}
   def await_reply(response_or_ref, timeout \\ 5000)
 
   def await_reply(%Req.Response{body: ref}, timeout) when is_reference(ref) do
