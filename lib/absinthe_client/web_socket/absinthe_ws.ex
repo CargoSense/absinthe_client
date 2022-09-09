@@ -70,7 +70,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   end
 
   @impl Slipstream
-  def handle_message(topic, "subscription:data" = event, %{"result" => _} = payload, socket) do
+  def handle_message(topic, "subscription:data" = event, %{"result" => payload}, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
       {:ok, %Push{ref: ref, pid: pid}} ->
         message = %AbsintheClient.WebSocket.Message{

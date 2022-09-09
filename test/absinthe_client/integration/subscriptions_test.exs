@@ -32,7 +32,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     end
 
     def handle_info(%AbsintheClient.WebSocket.Message{ref: ref} = data, state) do
-      %{"result" => %{"data" => %{"repoCommentSubscribe" => object}}} = data.payload
+      %{"data" => %{"repoCommentSubscribe" => object}} = data.payload
       send(state.parent, {:subscription_data, ref, state.socket, object})
       {:noreply, state}
     end

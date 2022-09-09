@@ -50,12 +50,12 @@ defmodule AbsintheClient.WebSocketTest do
     client = start_client!()
     sub_id = subscribe!(client)
 
-    expected_result = %{"result" => %{"id" => result_id(client)}}
-    push(client, sub_id, "subscription:data", expected_result)
+    expected_payload = %{"id" => result_id(client)}
+    push(client, sub_id, "subscription:data", %{"result" => expected_payload})
 
     assert_receive %AbsintheClient.WebSocket.Message{
       event: "subscription:data",
-      payload: ^expected_result
+      payload: ^expected_payload
     }
   end
 
@@ -105,9 +105,9 @@ defmodule AbsintheClient.WebSocketTest do
       status: :ok
     }
 
-    expected_result = %{"result" => %{"id" => result_id(client)}}
-    push(client, sub_id, "subscription:data", expected_result)
-    assert_receive %AbsintheClient.WebSocket.Message{payload: ^expected_result}
+    expected_payload = %{"id" => result_id(client)}
+    push(client, sub_id, "subscription:data", %{"result" => expected_payload})
+    assert_receive %AbsintheClient.WebSocket.Message{payload: ^expected_payload}
 
     disconnect(client, :closed)
 
@@ -116,9 +116,9 @@ defmodule AbsintheClient.WebSocketTest do
     assert_push @control_topic, "doc", %{query: ^query}, resub_ref, 1000
     reply(client, resub_ref, {:ok, %{"subscriptionId" => resub_id = sub_id(client)}})
 
-    expected_result = %{"result" => %{"id" => result_id(client)}}
-    push(client, resub_id, "subscription:data", expected_result)
-    assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_result}
+    expected_payload = %{"id" => result_id(client)}
+    push(client, resub_id, "subscription:data", %{"result" => expected_payload})
+    assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_payload}
   end
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
