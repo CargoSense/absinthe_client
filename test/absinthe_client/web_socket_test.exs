@@ -59,12 +59,12 @@ defmodule AbsintheClient.WebSocketTest do
     }
   end
 
-  test "clear_subscriptions/1 unsubscribes from all active subscriptions", %{test: ref} do
+  test "clear_subscriptions/1 unsubscribes from all active subscriptions" do
     client = start_client!()
     sub_a = subscribe!(client)
     sub_b = subscribe!(client)
 
-    :ok = AbsintheClient.WebSocket.clear_subscriptions(client, ref)
+    :ok = AbsintheClient.WebSocket.clear_subscriptions(client, ref = make_ref())
 
     assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_b}, sub_b_reply_ref
     assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_a}, sub_a_reply_ref

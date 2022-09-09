@@ -167,8 +167,8 @@ defmodule AbsintheClient.WebSocket do
   # Clears all subscriptions on the given socket.
   @doc false
   @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
-  @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | term()) :: :ok
-  def clear_subscriptions(socket, ref \\ nil) do
+  @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | reference()) :: :ok
+  def clear_subscriptions(socket, ref \\ nil) when is_nil(ref) or is_reference(ref) do
     send(socket, {:clear_subscriptions, self(), ref})
     :ok
   end
