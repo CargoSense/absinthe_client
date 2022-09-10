@@ -38,25 +38,109 @@ defmodule AbsintheClient.WebSocket do
       iex> AbsintheClient.WebSocket.await_reply!(response).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
 
+  ## Handling messages
+
+  Results will be sent to the caller in the form of
+  [`WebSocket.Message`](`AbsintheClient.WebSocket.Message`) structs.
+
+  In a `GenServer` for instance, you would implement a
+  [`handle_info/2`](`c:GenServer.handle_info/2`) callback:
+
+      def handle_info(%AbsintheClient.WebSocket.Message{payload: payload}, state) do
+        # code...
+        {:noreply, state}
+      end
+
   """
   alias AbsintheClient.WebSocket.{Push, Reply}
 
-  # Connects the caller to a WebSocket process for the given `url`.
-  @doc false
-  @spec connect(url :: URI.t()) :: atom()
-  @spec connect(owner :: pid(), url :: URI.t()) :: atom()
-  def connect(owner \\ self(), %URI{} = url) do
-    name = custom_socket_name(owner: owner, url: url)
+  @doc """
+  Dynamically starts (or re-uses already started) AbsintheWs
+  process with the given options:
 
-    case DynamicSupervisor.start_child(
-           AbsintheClient.SocketSupervisor,
-           {AbsintheClient.WebSocket.AbsintheWs, {owner, name: name, uri: url}}
-         ) do
-      {:ok, _} ->
-        name
+    * `:url` - URL where to make the WebSocket connection.
 
-      {:error, {:already_started, _}} ->
-        name
+    * `:headers` - list of headers to send on the initial
+      HTTP request. Defaults to `[]`.
+
+    * `:connect_options` - list of options given to
+      `Mint.HTTP.connect/4` for the initial HTTP request:
+
+        * `:timeout` - socket connect timeout in milliseconds,
+          defaults to `30_000`.
+
+    * `:parent` - pid of the process starting the connection.
+      The socket monitors this process and shuts down when
+      the parent process exits. Defaults to `self()`.
+
+  Note that this function returning succcessfully merely
+  indicate that the WebSocket process has started. The
+  process must then connect to the GraphQL server and join
+  the relevant topic(s) before it can begin sending and
+  receiving messages.
+
+  Note also if you are using `connect/1` in conjunction with
+  high-level `AbsintheClient` functions, you must ensure the
+  options match those given by the `run_absinthe_ws` step
+  otherwise you may start more processes that necessary.
+
+  ## Examples
+
+        iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
+        iex> ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+        iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(ref)
+        iex> reply.payload["data"]
+        %{"__type" => %{"name" => "Repo"}}
+
+  """
+  @spec connect(options :: Keyword.t()) :: {:ok, atom()} | {:error, reason :: term()}
+  def connect(options) do
+    {url, options} = Keyword.pop!(options, :url)
+    {headers, options} = Keyword.pop(options, :headers, [])
+    {parent, options} = Keyword.pop(options, :parent, self())
+    {mint_options, _options} = Keyword.pop(options, :connect_options, [])
+
+    config_options = [
+      uri: url,
+      headers: headers,
+      mint_opts: [
+        protocols: [:http1],
+        transport_opts: [timeout: mint_options[:timeout] || 30_000]
+      ]
+    ]
+
+    case Slipstream.Configuration.validate(config_options) do
+      {:ok, _config} ->
+        name = custom_socket_name([parent: parent] ++ config_options)
+
+        case DynamicSupervisor.start_child(
+               AbsintheClient.SocketSupervisor,
+               {AbsintheClient.WebSocket.AbsintheWs, {parent, config_options, [name: name]}}
+             ) do
+          {:ok, _} ->
+            {:ok, name}
+
+          {:error, {:already_started, _}} ->
+            {:ok, name}
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  Same as `connect/1` but raises on error.
+
+      iex> ws = AbsintheClient.WebSocket.connect!(url: "ws://localhost:8001/socket/websocket")
+      iex> ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+      iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
+      %{"__type" => %{"name" => "Repo"}}
+  """
+  def connect!(options) do
+    case connect(options) do
+      {:ok, name} -> name
+      {:error, error} -> raise error
     end
   end
 
@@ -71,25 +155,12 @@ defmodule AbsintheClient.WebSocket do
   end
 
   @doc """
-  Pushes a `query` over the given `socket` for execution.
-
-  ## Handling subscription messages
-
-  Results will be sent to the caller in the form of
-  [`WebSocket.Message`](`AbsintheClient.WebSocket.Message`) structs.
-
-  In a `GenServer` for instance, you would implement a
-  [`handle_info/2`](`c:GenServer.handle_info/2`) callback:
-
-      def handle_info(%AbsintheClient.WebSocket.Message{payload: payload}, state) do
-        # code...
-        {:noreply, state}
-      end
+  Pushes a `query` to the server via the given `socket`.
 
   ## Examples
 
-      iex> {:ok, ws} = AbsintheClient.WebSocket.AbsintheWs.start_link({self(), uri: "ws://localhost:8001/socket/websocket"})
-      iex> {:ok, ref} = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
+      iex> ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
       iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
@@ -97,7 +168,7 @@ defmodule AbsintheClient.WebSocket do
           socket :: GenServer.server(),
           query :: String.t(),
           variables :: nil | keyword() | map()
-        ) :: {:ok, reference()}
+        ) :: reference()
   def push(socket, query, variables \\ nil)
       when is_binary(query) and (is_nil(variables) or is_list(variables) or is_map(variables)) do
     send(socket, %Push{
@@ -107,7 +178,7 @@ defmodule AbsintheClient.WebSocket do
       ref: ref = make_ref()
     })
 
-    {:ok, ref}
+    ref
   end
 
   @doc """

@@ -98,8 +98,8 @@ defmodule AbsintheClient.Steps do
 
   ## Request options
 
-    * `:ws_adapter` - If set, to true, runs the request thru
-      the `run_absinthe_ws_adapter/1`. Defaults to `false`.
+    * `:ws_adapter` - If set to `true`, runs the request thru
+      the `run_absinthe_ws/1` step. Defaults to `false`.
 
   ## Examples
 
@@ -110,8 +110,11 @@ defmodule AbsintheClient.Steps do
   @doc step: :request
   def put_ws_adapter(%Req.Request{} = request) do
     case Map.fetch(request.options, :ws_adapter) do
+      {:ok, func} when is_function(func, 1) ->
+        %Req.Request{request | adapter: func}
+
       {:ok, true} ->
-        %Req.Request{request | adapter: &run_absinthe_ws_adapter/1}
+        %Req.Request{request | adapter: &run_absinthe_ws/1}
 
       {:ok, false} ->
         request
@@ -138,6 +141,7 @@ defmodule AbsintheClient.Steps do
   @doc step: :request
   def put_ws_scheme(%Req.Request{} = request) do
     case Map.fetch(request.options, :ws_adapter) do
+      {:ok, func} when is_function(func, 1) -> put_ws_scheme(request, ws_scheme(request.url))
       {:ok, true} -> put_ws_scheme(request, ws_scheme(request.url))
       {:ok, false} -> request
       :error -> request
@@ -166,14 +170,6 @@ defmodule AbsintheClient.Steps do
   queries and mutations are not stateful so they are more
   suited to HTTP and will scale better there in most cases.
 
-  ## Retries
-
-  Note that due to the asynchronous nature of the WebSocket
-  connection process, by default this function will retry the
-  message if an `AbsintheClient.NotJoinedError` is returned.
-
-  Consult the `Req.request/1` retry options for more information.
-
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
@@ -181,14 +177,30 @@ defmodule AbsintheClient.Steps do
       %{"__type" => %{"name" => "Repo"}}
   """
   @doc step: :request
-  def run_absinthe_ws_adapter(%Req.Request{} = request) do
-    socket_name = AbsintheClient.WebSocket.connect(self(), request.url)
+  def run_absinthe_ws(%Req.Request{} = request) do
+    socket_name =
+      case Map.fetch(request.options, :web_socket) do
+        {:ok, name} ->
+          if request.options[:connect_options] do
+            raise ArgumentError, "cannot set both :web_socket and :connect_options"
+          end
+
+          name
+
+        :error ->
+          AbsintheClient.WebSocket.connect!(
+            connect_options: request.options[:connect_options],
+            headers: request.headers,
+            url: request.url
+          )
+      end
+
     request = Req.Request.put_private(request, :absinthe_client_ws, socket_name)
 
     query = Map.fetch!(request.options, :query)
     variables = Map.get(request.options, :variables, %{})
 
-    {:ok, ref} = AbsintheClient.WebSocket.push(socket_name, query, variables)
+    ref = AbsintheClient.WebSocket.push(socket_name, query, variables)
 
     if Map.get(request.options, :ws_async) do
       {request, Req.Response.new(body: ref)}

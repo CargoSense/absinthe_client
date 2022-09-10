@@ -10,16 +10,19 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   ## Examples
 
-      AbsintheClient.WebSocket.AbsintheWs.start_link(uri: "wss://example.com/subscriptions/websocket")
+      AbsintheClient.WebSocket.AbsintheWs.start_link({self(), url: "wss://example.com/subscriptions/websocket"})
 
   """
-  @spec start_link({parent :: pid, opts :: Keyword.t()}) :: GenServer.on_start()
-  def start_link({parent, opts}) when is_pid(parent) and is_list(opts) do
-    # todo: split init args from GenServer options.
-    {name, opts} = Keyword.pop(opts, :name)
-    server_opts = if name, do: [name: name], else: []
+  @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
+  @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
+          GenServer.on_start()
+  def start_link(config) when is_list(config), do: start_link({self(), config, []})
+  def start_link({parent, config}) when is_pid(parent), do: start_link({parent, config, []})
 
-    Slipstream.start_link(__MODULE__, {parent, opts}, server_opts)
+  def start_link({parent, config, options}) do
+    with {:ok, _config} <- Slipstream.Configuration.validate(config) do
+      Slipstream.start_link(__MODULE__, {parent, config}, options)
+    end
   end
 
   @impl Slipstream
@@ -28,8 +31,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
     socket =
       config
-      |> connect!()
-      |> assign(
+      |> Slipstream.connect!()
+      |> Slipstream.Socket.assign(
         parent: parent,
         parent_ref: parent_ref,
         pids: %{},

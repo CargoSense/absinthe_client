@@ -92,6 +92,12 @@ defmodule AbsintheClient do
 
   WebSocket options:
 
+    * `:web_socket` - the WebSocket process to use. Defaults
+      to a socket automatically started by `AbsintheClient`.
+
+    * `:receive_timeout` - socket receive timeout in milliseconds,
+      defaults to `15_000`.
+
     * `:ws_adapter` - When set to `true`, runs the operation
       via the WebSocket adapter. Defaults to `false`.
 
@@ -100,8 +106,12 @@ defmodule AbsintheClient do
       will need to receive the `AbsintheClient.WebSocket.Reply`
       message. Defaults to `false`.
 
-    * `:receive_timeout` - socket receive timeout in milliseconds,
-      defaults to `15_000`.
+  AbsintheWs options (`run_absinthe_ws` step):
+
+    * `:connect_options` - dynamically starts (or re-uses already
+      started) AbsintheWs socket with the given connection options:
+
+        * `:timeout` - socket connect timeout in milliseconds, defaults to 30_000.
 
   ## Examples
 
@@ -118,7 +128,7 @@ defmodule AbsintheClient do
   def attach(%Req.Request{} = request, options \\ []) do
     # todo: remove when we support :get requests
     %{request | method: :post}
-    |> Req.Request.register_options([:query, :variables, :ws_adapter, :ws_async])
+    |> Req.Request.register_options([:query, :variables, :web_socket, :ws_adapter, :ws_async])
     |> Req.Request.merge_options(options)
     |> Req.Request.append_request_steps(
       encode_operation: &AbsintheClient.Steps.encode_operation/1,

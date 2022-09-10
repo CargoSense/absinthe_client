@@ -7,16 +7,14 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
 
     def init({client, parent}) do
-      # Applies the URI changes to the client so we can connect early.
-      client =
-        client
-        |> Req.Request.merge_options(ws_adapter: true)
-        |> Req.Steps.put_base_url()
-        |> AbsintheClient.Steps.put_ws_scheme()
-        |> AbsintheClient.Steps.put_graphql_path()
+      # Run the request through a mock adapter to get the connect options.
+      {url, headers} =
+        Req.request!(client,
+          ws_adapter: fn req -> {req, Req.Response.new(body: {req.url, req.headers})} end,
+          query: ""
+        ).body
 
-      client = update_in(client.options, &Map.delete(&1, :base_url))
-      socket_name = AbsintheClient.WebSocket.connect(client.url)
+      socket_name = AbsintheClient.WebSocket.connect!(url: url, headers: headers)
 
       {:ok, %{parent: parent, client: client, socket: socket_name}}
     end
@@ -24,16 +22,16 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     # todo: remove handle_info for reply when clear_subscriptions/1 can be awaited on
     def handle_info(%AbsintheClient.WebSocket.Reply{} = reply, state) do
       # todo: make this be a %Subscription{}
-      %{status: :ok, payload: %{"subscriptionId" => _}} = reply
+      %{status: :ok, payload: %{"subscriptionId" => subscription_id}} = reply
 
-      send(state.parent, {:subscription_reply, reply.ref, state.socket})
+      send(state.parent, {:subscription_reply, reply.ref, subscription_id})
 
       {:noreply, state}
     end
 
-    def handle_info(%AbsintheClient.WebSocket.Message{ref: ref} = data, state) do
-      %{"data" => %{"repoCommentSubscribe" => object}} = data.payload
-      send(state.parent, {:subscription_data, ref, state.socket, object})
+    def handle_info(%AbsintheClient.WebSocket.Message{} = msg, state) do
+      %{"data" => %{"repoCommentSubscribe" => object}} = msg.payload
+      send(state.parent, {:subscription_data, msg.ref, msg.topic, object})
       {:noreply, state}
     end
 
@@ -52,11 +50,11 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
           variables: %{"repository" => name}
         ).body
 
-      %AbsintheClient.Subscription{ref: ref} = subscription
+      %AbsintheClient.Subscription{id: subscription_id, ref: ref} = subscription
 
-      send(state.parent, {:subscription_reply, ref, state.socket})
+      send(state.parent, {:subscription_reply, ref, subscription_id})
 
-      {:reply, {:ok, ref}, state}
+      {:reply, ref, state}
     end
 
     def handle_call({:run, func}, _from, state), do: func.(state)
@@ -148,7 +146,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     client = Req.new(base_url: url) |> AbsintheClient.attach()
     pid = start_supervised!({CommentSubscriber, {client, self()}})
 
-    {:ok, ref} = CommentSubscriber.subscribe(pid, {:repo, "ELIXIR"})
+    ref = CommentSubscriber.subscribe(pid, {:repo, "ELIXIR"})
 
     assert_receive {:subscription_reply, ^ref, subscription_id}
 
@@ -160,7 +158,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     repo = "ABSINTHE"
-    {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
+    ref = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
 
     publisher_pid = start_supervised!({CommentPublisher, {client, self()}})
     comment_id = CommentPublisher.publish!(publisher_pid, repository: repo, commentary: "hi")
@@ -174,7 +172,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     # Subscribes and receives a message on the ABSINTHE repository topic.
-    {:ok, abs_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "ABSINTHE"})
+    abs_ref = CommentSubscriber.subscribe(subscriber_pid, {:repo, "ABSINTHE"})
     assert_receive {:subscription_reply, ^abs_ref, abs_subscription_id}
 
     abs_comment_id =
@@ -195,7 +193,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
     assert_receive {:subscription_reply, ^clear_subscriptions_ref, ^abs_subscription_id}
 
-    {:ok, phx_ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
+    phx_ref = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
     assert_receive {:subscription_reply, ^phx_ref, phx_subscription_id}
 
     # We expect to *not* receive any more messages from the
@@ -232,7 +230,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     repo = "PHOENIX"
     text = "#{test}"
 
-    {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
+    ref = CommentSubscriber.subscribe(subscriber_pid, {:repo, repo})
     assert_receive {:subscription_reply, ^ref, subscription_id}
 
     comment_id = CommentPublisher.publish!(publisher_pid, repository: repo, commentary: text)
@@ -257,7 +255,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     client = Req.new(url: url) |> AbsintheClient.attach()
     subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
-    {:ok, ref} = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
+    ref = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})
     assert_receive {:subscription_reply, ^ref, _}
 
     :ok = CommentSubscriber.trigger_disconnect(subscriber_pid)

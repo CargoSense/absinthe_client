@@ -17,7 +17,7 @@ defmodule AbsintheClient.IntegrationTest do
       put_graphql_path: 1,
       put_ws_adapter: 1,
       put_ws_scheme: 1,
-      run_absinthe_ws_adapter: 1
+      run_absinthe_ws: 1
     ]
 
   doctest AbsintheClient.WebSocket,
@@ -25,6 +25,8 @@ defmodule AbsintheClient.IntegrationTest do
       :moduledoc,
       await_reply: 2,
       await_reply!: 2,
+      connect: 1,
+      connect!: 1,
       push: 3
     ]
 end
