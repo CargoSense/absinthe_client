@@ -86,14 +86,39 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-        iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
-        iex> ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
-        iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(ref)
-        iex> reply.payload["data"]
-        %{"__type" => %{"name" => "Repo"}}
+  From a request:
 
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(client)
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
+
+  From keyword options:
+
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
   """
-  @spec connect(options :: Keyword.t()) :: {:ok, atom()} | {:error, reason :: term()}
+  @spec connect(request_or_options :: Req.Request.t() | Keyword.t()) ::
+          {:ok, atom()} | {:error, reason :: term()}
+  def connect(%Req.Request{} = request) do
+    options =
+      Req.request!(request,
+        # query is required by AbsintheClient– it is empty because we are not making an actual request.
+        query: "",
+        # this funky adapter _just_ returns the final form of the socket options
+        # as the response body..
+        ws_adapter: fn req ->
+          {req,
+           Req.Response.new(
+             body: [url: req.url, headers: req.headers] ++ :maps.to_list(req.options)
+           )}
+        end
+      ).body
+
+    connect(options)
+  end
+
   def connect(options) do
     {url, options} = Keyword.pop!(options, :url)
     {headers, options} = Keyword.pop(options, :headers, [])
@@ -132,13 +157,24 @@ defmodule AbsintheClient.WebSocket do
   @doc """
   Same as `connect/1` but raises on error.
 
+  ## Examples
+
+  From a request:
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> ws = AbsintheClient.WebSocket.connect!(client)
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
+
+  From keyword options:
+
       iex> ws = AbsintheClient.WebSocket.connect!(url: "ws://localhost:8001/socket/websocket")
-      iex> ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
-      iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
-      %{"__type" => %{"name" => "Repo"}}
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
   """
-  def connect!(options) do
-    case connect(options) do
+  @spec connect!(request_or_options :: Req.Request.t() | Keyword.t()) :: atom()
+  def connect!(request_or_options) do
+    case connect(request_or_options) do
       {:ok, name} -> name
       {:error, error} -> raise error
     end

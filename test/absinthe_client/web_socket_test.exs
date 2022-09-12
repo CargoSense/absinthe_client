@@ -13,14 +13,7 @@ defmodule AbsintheClient.WebSocketTest do
     end
 
     def init(%Req.Request{} = req) do
-      # Run the request through a mock adapter to get the connect options.
-      {url, headers} =
-        Req.request!(req,
-          ws_adapter: fn req -> {req, Req.Response.new(body: {req.url, req.headers})} end,
-          query: ""
-        ).body
-
-      {:ok, AbsintheClient.WebSocket.connect!(url: url, headers: headers)}
+      AbsintheClient.WebSocket.connect(req)
     end
 
     def handle_call({:call, fun}, _, state) when is_function(fun, 1) do

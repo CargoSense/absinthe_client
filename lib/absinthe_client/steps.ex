@@ -188,11 +188,7 @@ defmodule AbsintheClient.Steps do
           name
 
         :error ->
-          AbsintheClient.WebSocket.connect!(
-            connect_options: request.options[:connect_options],
-            headers: request.headers,
-            url: request.url
-          )
+          AbsintheClient.WebSocket.connect!(request)
       end
 
     request = Req.Request.put_private(request, :absinthe_client_ws, socket_name)
