@@ -88,7 +88,7 @@ defmodule AbsintheClient.WebSocket do
 
   From a request:
 
-      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
       iex> {:ok, ws} = AbsintheClient.WebSocket.connect(client)
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
@@ -102,37 +102,29 @@ defmodule AbsintheClient.WebSocket do
   @spec connect(request_or_options :: Req.Request.t() | Keyword.t()) ::
           {:ok, atom()} | {:error, reason :: term()}
   def connect(%Req.Request{} = request) do
-    options =
-      Req.request!(request,
-        # query is required by AbsintheClient– it is empty because we are not making an actual request.
-        query: "",
-        # this funky adapter _just_ returns the final form of the socket options
-        # as the response body..
-        ws_adapter: fn req ->
-          {req,
-           Req.Response.new(
-             body: [url: req.url, headers: req.headers] ++ :maps.to_list(req.options)
-           )}
-        end
-      ).body
-
-    connect(options)
+    connect(request, [])
   end
 
-  def connect(options) do
-    {url, options} = Keyword.pop!(options, :url)
-    {headers, options} = Keyword.pop(options, :headers, [])
-    {parent, options} = Keyword.pop(options, :parent, self())
-    {mint_options, _options} = Keyword.pop(options, :connect_options, [])
+  def connect(options) when is_list(options) do
+    connect(AbsintheClient.attach(Req.new()), options)
+  end
 
-    config_options = [
-      uri: url,
-      headers: headers,
-      mint_opts: [
-        protocols: [:http1],
-        transport_opts: [timeout: mint_options[:timeout] || 30_000]
-      ]
-    ]
+  @doc """
+  Connects to an Absinthe WebSocket.
+
+  Refer to `connect/1` for more information.
+
+  ### Examples
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"))
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(client, url: "/subscriptions/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
+  """
+  def connect(%Req.Request{} = client, options) when is_list(options) do
+    {parent, options} = Keyword.pop(options, :parent, self())
+    builder_options = [query: "", ws_adapter: &build_absinthe_ws_options/1]
+    config_options = Req.request!(client, builder_options ++ options).body
 
     case Slipstream.Configuration.validate(config_options) do
       {:ok, _config} ->
@@ -152,6 +144,21 @@ defmodule AbsintheClient.WebSocket do
       {:error, _} = error ->
         error
     end
+  end
+
+  defp build_absinthe_ws_options(%Req.Request{} = req) do
+    {mint_options, _options} = Map.pop(req.options, :connect_options, [])
+
+    absinthe_ws_options = [
+      uri: req.url,
+      headers: req.headers,
+      mint_opts: [
+        protocols: [:http1],
+        transport_opts: [timeout: mint_options[:timeout] || 30_000]
+      ]
+    ]
+
+    {req, Req.Response.new(body: absinthe_ws_options)}
   end
 
   @doc """
@@ -177,6 +184,23 @@ defmodule AbsintheClient.WebSocket do
     case connect(request_or_options) do
       {:ok, name} -> name
       {:error, error} -> raise error
+    end
+  end
+
+  @doc """
+  Same as `connect/2` but raises on error.
+
+  ## Examples
+
+      iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
+      iex> ws = AbsintheClient.WebSocket.connect!(client, url: "/subscriptions/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
+  """
+  def connect!(request, options) do
+    case connect(request, options) do
+      {:ok, name} -> name
+      {:error, exception} -> raise exception
     end
   end
 

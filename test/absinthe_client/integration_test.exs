@@ -26,7 +26,9 @@ defmodule AbsintheClient.IntegrationTest do
       await_reply: 2,
       await_reply!: 2,
       connect: 1,
+      connect: 2,
       connect!: 1,
+      connect!: 2,
       push: 3
     ]
 end
