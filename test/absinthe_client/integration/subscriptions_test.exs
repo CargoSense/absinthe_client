@@ -7,14 +7,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
 
     def init({client, parent}) do
-      # Run the request through a mock adapter to get the connect options.
-      {url, headers} =
-        Req.request!(client,
-          ws_adapter: fn req -> {req, Req.Response.new(body: {req.url, req.headers})} end,
-          query: ""
-        ).body
-
-      socket_name = AbsintheClient.WebSocket.connect!(url: url, headers: headers)
+      socket_name = AbsintheClient.WebSocket.connect!(client)
 
       {:ok, %{parent: parent, client: client, socket: socket_name}}
     end

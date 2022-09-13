@@ -36,23 +36,29 @@ defmodule AbsintheClient.Steps do
   """
   @doc step: :request
   def encode_operation(%Req.Request{} = request) do
-    query = Map.fetch!(request.options, :query)
-    variables = Map.get(request.options, :variables, %{})
+    case Map.fetch(request.options, :query) do
+      {:ok, query} when is_binary(query) ->
+        variables = Map.get(request.options, :variables, %{})
+        encode_operation(request, request.method, query, variables)
 
-    encode_operation(request, request.method, query, variables)
+      {:ok, other} ->
+        raise ArgumentError,
+              "invalid GraphQL query, expected String.t(), got: #{inspect(other)}"
+
+      :error ->
+        request
+    end
   end
 
   defp encode_operation(request, :post, query, variables) do
     encode_json(request, %{query: query, variables: variables})
   end
 
-  defp encode_operation(request, method, query, variables) do
+  defp encode_operation(request, _method, query, variables) do
     if request.options[:ws_adapter] do
       encode_json(request, %{query: query, variables: variables})
     else
-      # remove once we support :get request formatting
-      raise ArgumentError,
-            "invalid request method, expected :post, got: #{inspect(method)}"
+      request
     end
   end
 

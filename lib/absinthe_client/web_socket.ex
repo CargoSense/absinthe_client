@@ -123,8 +123,12 @@ defmodule AbsintheClient.WebSocket do
   """
   def connect(%Req.Request{} = client, options) when is_list(options) do
     {parent, options} = Keyword.pop(options, :parent, self())
-    builder_options = [query: "", ws_adapter: &build_absinthe_ws_options/1]
-    config_options = Req.request!(client, builder_options ++ options).body
+
+    # Setting `:query` here is a hack to make sure that the config
+    # options (specifically the content headers) match what we get
+    # on push/3, otherwise we will start another socket process.
+    config_options =
+      Req.request!(client, [query: "", ws_adapter: &run_ws_options/1] ++ options).body
 
     case Slipstream.Configuration.validate(config_options) do
       {:ok, _config} ->
@@ -146,7 +150,7 @@ defmodule AbsintheClient.WebSocket do
     end
   end
 
-  defp build_absinthe_ws_options(%Req.Request{} = req) do
+  defp run_ws_options(%Req.Request{} = req) do
     {mint_options, _options} = Map.pop(req.options, :connect_options, [])
 
     absinthe_ws_options = [

@@ -11,20 +11,46 @@ defmodule AbsintheClient.StepsTest do
     end
   end
 
-  test "KeyError when the query option is not set" do
-    assert_raise KeyError, "key :query not found in: %{}", fn ->
-      Req.new(method: :post)
-      |> AbsintheClient.attach()
+  test "request raises ArgumentError for invalid queries" do
+    assert_raise ArgumentError, "invalid GraphQL query, expected String.t(), got: nil", fn ->
+      Req.new()
+      |> AbsintheClient.attach(query: nil)
       |> Req.request!()
     end
+
+    assert_raise ArgumentError, "invalid GraphQL query, expected String.t(), got: 42", fn ->
+      Req.new()
+      |> AbsintheClient.attach(query: 42)
+      |> Req.request!()
+    end
+
+    assert_raise ArgumentError,
+                 "invalid GraphQL query, expected String.t(), got: %{foo: :bar}",
+                 fn ->
+                   Req.new()
+                   |> AbsintheClient.attach(query: %{foo: :bar})
+                   |> Req.request!()
+                 end
   end
 
-  test "GET requests raise ArgumentError" do
-    assert_raise ArgumentError, "invalid request method, expected :post, got: :get", fn ->
-      Req.new()
+  test "requests without queries are not encoded" do
+    resp =
+      [plug: EchoJSON, method: :post]
+      |> Req.new()
+      |> AbsintheClient.attach()
+      |> Req.request!()
+
+    assert resp.body == ""
+  end
+
+  test "GET requests are not encoded" do
+    resp =
+      [plug: EchoJSON]
+      |> Req.new()
       |> AbsintheClient.attach()
       |> Req.get!(query: "query GetItem{ getItem{ id } }")
-    end
+
+    assert resp.body == ""
   end
 
   test "POST requests send JSON-encoded operations" do
