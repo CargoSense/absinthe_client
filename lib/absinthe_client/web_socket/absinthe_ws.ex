@@ -1,142 +1,40 @@
-defmodule Absinthe.Socket do
-  @moduledoc """
-  WebSocket client for [Absinthe](https://hexdocs.pm/absinthe).
-  """
+defmodule AbsintheClient.WebSocket.AbsintheWs do
+  @moduledoc false
   use Slipstream, restart: :temporary
-  alias Absinthe.Socket.{Push, Reply}
+  alias AbsintheClient.WebSocket.{Push, Reply}
 
   @control_topic "__absinthe__:control"
-
-  @doc """
-  Pushes a `query` over the given `socket` for execution.
-
-  ## Options
-
-  * `:variables` - a map of query variables.
-
-  * `:ref` - a unique term reference to track replies.
-
-  ## Examples
-
-      {:ok, sock} = Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
-
-      Absinthe.Socket.push(sock,
-        "subscription ($id: ID!) {orderCreated(storeId: $id) { id } }",
-        variables: %{id: "store123"}
-      )
-
-  ## Handling subscription messages
-
-  Results will be sent to the caller in the form of
-  [`Subscription.Data`](`Absinthe.Subscription.Data`) structs.
-
-  In a `GenServer` for instance, you would implement `handle_info/2` callback:
-
-      def handle_info(%Absinthe.Subscription.Data{id: _topic, result: payload}, state) do
-        # code...
-        {:noreply, state}
-      end
-
-  ## Receiving replies
-
-  Usually only subscription data messages are sent to the
-  caller. If you want to receive a push [`Reply`](`Absinthe.Socket.Reply`)
-  you pass a reference to the `:ref` option:
-
-      Absinthe.Socket.push(
-        sock,
-        "query GetItem($id: ID!) { item(id: $id) { name } }",
-        ref: "get-item-ref"
-      )
-
-  ...and handle the reply:
-
-      receive do
-        %Absinthe.Socket.Reply{ref: "get-item-ref", result: result} ->
-          # do something with result...
-      after
-        5_000 ->
-          exit(:timeout)
-      end
-
-  """
-  @spec push(socket :: GenServer.server(), query :: String.t()) :: :ok
-  @spec push(socket :: GenServer.server(), query :: String.t(), opts :: Access.t()) :: :ok
-  def push(socket, query, opts \\ []) when is_binary(query) do
-    variables =
-      case Access.fetch(opts, :variables) do
-        {:ok, variables} when is_map(variables) ->
-          variables
-
-        {:ok, other} ->
-          raise ArgumentError,
-                "invalid :variables given to push/3, expected a map, got: #{inspect(other)}"
-
-        :error ->
-          nil
-      end
-
-    ref =
-      case Access.fetch(opts, :ref) do
-        {:ok, ref} ->
-          ref
-
-        :error ->
-          nil
-      end
-
-    push = Push.new_doc(query, variables, self(), ref)
-
-    send(socket, push)
-    :ok
-  end
-
-  @doc """
-  Clears all subscriptions on the given socket.
-
-  Subscriptions are cleared asynchronously. This function
-  always returns `:ok`.
-
-  ## Receiving replies
-
-  Similar to `push/3`, you can have unsubscribe replies sent
-  to the caller by providing a `ref` as the second argument
-  to `clear_subscriptions/2`.
-
-  ## Examples
-
-      Absinthe.Socket.clear_subscriptions(socket)
-
-      Absinthe.Socket.clear_subscriptions(socket, "my-unsubscribe-ref")
-
-  """
-  @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
-  @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | term()) :: :ok
-  def clear_subscriptions(socket, ref \\ nil) do
-    send(socket, {:clear_subscriptions, self(), ref})
-    :ok
-  end
 
   @doc """
   Starts a Absinthe client process.
 
   ## Examples
 
-      Absinthe.Socket.start_link(uri: "wss://example.com/subscriptions/websocket")
+      AbsintheClient.WebSocket.AbsintheWs.start_link({self(), url: "wss://example.com/subscriptions/websocket"})
 
   """
-  @spec start_link(opts :: Keyword.t()) :: GenServer.on_start()
-  def start_link(opts) do
-    # todo: split init args from GenServer options.
-    Slipstream.start_link(__MODULE__, opts)
+  @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
+  @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
+          GenServer.on_start()
+  def start_link(config) when is_list(config), do: start_link({self(), config, []})
+  def start_link({parent, config}) when is_pid(parent), do: start_link({parent, config, []})
+
+  def start_link({parent, config, options}) do
+    with {:ok, _config} <- Slipstream.Configuration.validate(config) do
+      Slipstream.start_link(__MODULE__, {parent, config}, options)
+    end
   end
 
   @impl Slipstream
-  def init(config) do
+  def init({parent, config}) do
+    parent_ref = Process.monitor(parent)
+
     socket =
       config
-      |> connect!()
-      |> assign(
+      |> Slipstream.connect!()
+      |> Slipstream.Socket.assign(
+        parent: parent,
+        parent_ref: parent_ref,
         pids: %{},
         channel_connected: false,
         active_subscriptions: %{},
@@ -175,10 +73,16 @@ defmodule Absinthe.Socket do
   end
 
   @impl Slipstream
-  def handle_message(topic, "subscription:data", %{"result" => result}, socket) do
+  def handle_message(topic, "subscription:data" = event, %{"result" => payload}, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
-      {:ok, %{pid: pid}} ->
-        message = %Absinthe.Subscription.Data{id: topic, result: result}
+      {:ok, %Push{ref: ref, pid: pid}} ->
+        message = %AbsintheClient.WebSocket.Message{
+          topic: topic,
+          event: event,
+          payload: payload,
+          ref: ref
+        }
+
         send(pid, message)
 
       _ ->
@@ -194,7 +98,8 @@ defmodule Absinthe.Socket do
   def handle_reply(push_ref, result, socket) do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
       {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
-        if push.ref, do: send(pid, %Reply{event: push.event, ref: push.ref, result: result})
+        if is_reference(push.ref) and push.pushed_counter == 1,
+          do: send(pid, reply(push, push_ref, result))
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
 
@@ -208,6 +113,14 @@ defmodule Absinthe.Socket do
         {:ok, socket}
     end
   end
+
+  defp reply(%Push{} = push, push_ref, result),
+    do: reply(%Reply{event: push.event, ref: push.ref, push_ref: push_ref}, result)
+
+  defp reply(reply, :ok), do: %Reply{reply | status: :ok, payload: nil}
+  defp reply(reply, :error), do: %Reply{reply | status: :error, payload: nil}
+  defp reply(reply, {:ok, payload}), do: %Reply{reply | status: :ok, payload: payload}
+  defp reply(reply, {:error, payload}), do: %Reply{reply | status: :error, payload: payload}
 
   defp maybe_update_subscriptions(socket, %{event: "unsubscribe"}, _result) do
     socket
@@ -243,7 +156,12 @@ defmodule Absinthe.Socket do
 
     unsubscribes =
       Enum.map(sub_ids, fn sub_id ->
-        Push.new("unsubscribe", %{"subscriptionId" => sub_id}, pid, ref_or_nil)
+        Push.new(
+          event: "unsubscribe",
+          params: %{"subscriptionId" => sub_id},
+          pid: pid,
+          ref: ref_or_nil
+        )
       end)
 
     socket =
@@ -253,6 +171,11 @@ defmodule Absinthe.Socket do
       |> update(:active_subscriptions, &Map.drop(&1, sub_ids))
 
     {:noreply, socket}
+  end
+
+  @impl Slipstream
+  def handle_info({:DOWN, ref, :process, _, _}, %{assigns: %{parent_ref: ref}} = socket) do
+    {:stop, :shutdown, socket}
   end
 
   @impl Slipstream
@@ -281,10 +204,14 @@ defmodule Absinthe.Socket do
   defp push_messages(socket, [%Push{} | _] = messages) do
     update(socket, :inflight, fn inflight ->
       Enum.reduce(messages, inflight, fn op, acc ->
-        {:ok, push_ref} = push(socket, @control_topic, op.event, op.params)
-        Map.put(acc, push_ref, op)
+        {:ok, push_ref} = push_message(socket, op)
+        Map.put(acc, push_ref, %{op | pushed_counter: op.pushed_counter + 1})
       end)
     end)
+  end
+
+  defp push_message(socket, op) do
+    Slipstream.push(socket, @control_topic, op.event, op.params)
   end
 
   defp enqueue_active_subscriptions(socket) do
