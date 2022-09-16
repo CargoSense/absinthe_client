@@ -12,24 +12,20 @@ defmodule AbsintheClient.StepsTest do
   end
 
   test "request raises ArgumentError for invalid queries" do
-    assert_raise ArgumentError, "invalid GraphQL query, expected String.t(), got: nil", fn ->
-      Req.new()
-      |> AbsintheClient.attach(query: nil)
-      |> Req.request!()
-    end
-
-    assert_raise ArgumentError, "invalid GraphQL query, expected String.t(), got: 42", fn ->
-      Req.new()
-      |> AbsintheClient.attach(query: 42)
-      |> Req.request!()
-    end
+    assert_raise ArgumentError,
+                 "invalid GraphQL query, expected String.t() or {String.t(), map()}, got: 42",
+                 fn ->
+                   Req.new(url: "http://example.com")
+                   |> AbsintheClient.attach(graphql: 42)
+                   |> Req.post!()
+                 end
 
     assert_raise ArgumentError,
-                 "invalid GraphQL query, expected String.t(), got: %{foo: :bar}",
+                 "invalid GraphQL query, expected String.t() or {String.t(), map()}, got: %{foo: :bar}",
                  fn ->
-                   Req.new()
-                   |> AbsintheClient.attach(query: %{foo: :bar})
-                   |> Req.request!()
+                   Req.new(url: "http://example.com")
+                   |> AbsintheClient.attach(graphql: %{foo: :bar})
+                   |> Req.post!()
                  end
   end
 
@@ -48,7 +44,7 @@ defmodule AbsintheClient.StepsTest do
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> Req.get!(query: "query GetItem{ getItem{ id } }")
+      |> Req.get!(graphql: "query GetItem{ getItem{ id } }")
 
     assert resp.body == ""
   end
@@ -58,15 +54,15 @@ defmodule AbsintheClient.StepsTest do
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> AbsintheClient.run!("query GetItem{ getItem{ id } }")
+      |> Req.post!(graphql: "query GetItem{ getItem{ id } }")
 
-    assert resp.body == %{"query" => "query GetItem{ getItem{ id } }", "variables" => %{}}
+    assert resp.body == %{"query" => "query GetItem{ getItem{ id } }"}
 
     resp =
       [plug: EchoJSON]
       |> Req.new()
       |> AbsintheClient.attach()
-      |> AbsintheClient.run!("query GetItem{ getItem{ id } }", variables: %{"foo" => "bar"})
+      |> Req.post!(graphql: {"query GetItem{ getItem{ id } }", %{"foo" => "bar"}})
 
     assert resp.body == %{
              "query" => "query GetItem{ getItem{ id } }",

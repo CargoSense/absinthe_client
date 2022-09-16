@@ -94,7 +94,7 @@ defmodule AbsintheClient.WebSocketTest do
   end
 
   test "monitors parent and exits on down", %{socket_url: socket_url} do
-    client = AbsintheClient.attach(Req.new(url: socket_url))
+    client = AbsintheClient.attach(Req.new(base_url: socket_url))
     listener_pid = start_supervised!({Listener, client})
 
     socket_pid =

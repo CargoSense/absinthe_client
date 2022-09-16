@@ -2,11 +2,9 @@ defmodule AbsintheClient.WebSocket do
   @moduledoc """
   The `Absinthe` WebSocket subscription manager.
 
-  AbsintheClient is composed of three main pieces:
+  AbsintheClient is composed of the following:
 
     * `AbsintheClient` - the Absinthe client for GraphQL
-
-    * `AbsintheClient.Steps` - the collection of `Req` steps
 
     * `AbsintheClient.WebSocket` - the `Absinthe` WebSocket connection (you're here!)
 
@@ -28,13 +26,13 @@ defmodule AbsintheClient.WebSocket do
   Performing a `query` operation over a WebSocket:
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true)
-      iex> AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      iex> Req.post!(client, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
 
   Performing an async `query` operation and awaiting the reply:
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true, ws_async: true)
-      iex> response = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|)
+      iex> response = Req.post!(client, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> AbsintheClient.WebSocket.await_reply!(response).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
 
@@ -128,7 +126,14 @@ defmodule AbsintheClient.WebSocket do
     # options (specifically the content headers) match what we get
     # on push/3, otherwise we will start another socket process.
     config_options =
-      Req.request!(client, [query: "", ws_adapter: &run_ws_options/1] ++ options).body
+      Req.request!(
+        client,
+        [
+          url: "/socket/websocket",
+          graphql: "",
+          ws_adapter: &run_ws_options/1
+        ] ++ options
+      ).body
 
     case Slipstream.Configuration.validate(config_options) do
       {:ok, _config} ->
@@ -251,7 +256,7 @@ defmodule AbsintheClient.WebSocket do
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true, ws_async: true)
-      iex> {:ok, response} = AbsintheClient.run(client, ~S|{ __type(name: "Repo") { name } }|)
+      iex> {:ok, response} = Req.request(client, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(response)
       iex> reply.payload["data"]
       %{"__type" => %{"name" => "Repo"}}
@@ -280,7 +285,7 @@ defmodule AbsintheClient.WebSocket do
   ## Examples
 
       iex> client = AbsintheClient.attach(Req.new(base_url: "http://localhost:8001"), ws_adapter: true, ws_async: true)
-      iex> response = AbsintheClient.run!(client, ~S|{ __type(name: "Repo") { name } }|)
+      iex> response = Req.post!(client, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> AbsintheClient.WebSocket.await_reply!(response).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
