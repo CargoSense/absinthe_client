@@ -119,8 +119,24 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   defp reply(reply, :ok), do: %Reply{reply | status: :ok, payload: nil}
   defp reply(reply, :error), do: %Reply{reply | status: :error, payload: nil}
-  defp reply(reply, {:ok, payload}), do: %Reply{reply | status: :ok, payload: payload}
-  defp reply(reply, {:error, payload}), do: %Reply{reply | status: :error, payload: payload}
+
+  defp reply(reply, {:ok, payload}),
+    do: %Reply{reply | status: :ok, payload: payload(reply, payload)}
+
+  defp reply(reply, {:error, payload}),
+    do: %Reply{reply | status: :error, payload: error_payload(reply, payload)}
+
+  defp payload(reply, %{"subscriptionId" => subscription_id}) do
+    %AbsintheClient.Subscription{
+      socket: self(),
+      ref: reply.ref,
+      id: subscription_id
+    }
+  end
+
+  defp payload(_reply, payload), do: payload
+
+  defp error_payload(_, payload), do: payload
 
   defp maybe_update_subscriptions(socket, %{event: "unsubscribe"}, _result) do
     socket

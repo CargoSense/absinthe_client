@@ -14,10 +14,9 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
 
     # todo: remove handle_info for reply when clear_subscriptions/1 can be awaited on
     def handle_info(%AbsintheClient.WebSocket.Reply{} = reply, state) do
-      # todo: make this be a %Subscription{}
-      %{status: :ok, payload: %{"subscriptionId" => subscription_id}} = reply
+      %{payload: %AbsintheClient.Subscription{} = subscription} = reply
 
-      send(state.parent, {:subscription_reply, reply.ref, subscription_id})
+      send(state.parent, {:subscription_reply, reply.ref, subscription.id})
 
       {:noreply, state}
     end

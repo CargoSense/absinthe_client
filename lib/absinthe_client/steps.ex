@@ -230,17 +230,5 @@ defmodule AbsintheClient.Steps do
   defp ws_response_status(:ok), do: 200
   defp ws_response_status(:error), do: 500
 
-  defp ws_response_body(req, reply) do
-    case reply do
-      %{status: :ok, payload: %{"subscriptionId" => subscription_id}} ->
-        %AbsintheClient.Subscription{
-          socket: req.private.absinthe_client_ws,
-          ref: reply.ref,
-          id: subscription_id
-        }
-
-      _ ->
-        reply.payload
-    end
-  end
+  defp ws_response_body(_req, %{payload: payload}), do: payload
 end
