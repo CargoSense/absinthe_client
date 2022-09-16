@@ -31,15 +31,14 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       subscription =
         AbsintheClient.subscribe!(
           state.client,
-          """
-          subscription RepoCommentSubscription($repository: Repository!){
-            repoCommentSubscribe(repository: $repository){
-              id
-              commentary
-            }
-          }
-          """,
-          variables: %{"repository" => name}
+          {"""
+           subscription RepoCommentSubscription($repository: Repository!){
+             repoCommentSubscribe(repository: $repository){
+               id
+               commentary
+             }
+           }
+           """, %{"repository" => name}}
         ).body
 
       %AbsintheClient.Subscription{id: subscription_id, ref: ref} = subscription
@@ -121,7 +120,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     end
 
     def handle_call({:publish!, opts}, _, state) do
-      response = Req.post!(state.client, query: opts[:query], variables: opts[:variables])
+      response = Req.post!(state.client, graphql: {opts[:query], opts[:variables]})
       comment_id = get_in(response.body, ~w(data repoComment id))
 
       {:reply, comment_id, state}
@@ -159,7 +158,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
   end
 
   test "messages are not sent for cleared subscriptions", %{url: url, test: test} do
-    client = Req.new(url: url) |> AbsintheClient.attach()
+    client = Req.new(base_url: url) |> AbsintheClient.attach()
     publisher_pid = start_supervised!({CommentPublisher, {client, self()}})
     subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
@@ -215,7 +214,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
   end
 
   test "rejoining active subscription on reconnect", %{url: url, test: test} do
-    client = Req.new(url: url) |> AbsintheClient.attach()
+    client = Req.new(base_url: url) |> AbsintheClient.attach()
     publisher_pid = start_supervised!({CommentPublisher, {client, self()}})
     subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
@@ -244,7 +243,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
   end
 
   test "rejoins do not send replies", %{url: url} do
-    client = Req.new(url: url) |> AbsintheClient.attach()
+    client = Req.new(base_url: url) |> AbsintheClient.attach()
     subscriber_pid = start_supervised!({CommentSubscriber, {client, self()}})
 
     ref = CommentSubscriber.subscribe(subscriber_pid, {:repo, "PHOENIX"})

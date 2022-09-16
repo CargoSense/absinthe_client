@@ -6,18 +6,8 @@ defmodule AbsintheClient.IntegrationTest do
   doctest AbsintheClient,
     only: [
       :moduledoc,
-      run: 3,
-      run!: 3,
+      attach: 2,
       subscribe!: 3
-    ]
-
-  doctest AbsintheClient.Steps,
-    only: [
-      encode_operation: 1,
-      put_graphql_path: 1,
-      put_ws_adapter: 1,
-      put_ws_scheme: 1,
-      run_absinthe_ws: 1
     ]
 
   doctest AbsintheClient.WebSocket,
