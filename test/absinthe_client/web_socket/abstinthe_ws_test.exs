@@ -16,19 +16,19 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    _ref = AbsintheClient.WebSocket.push(client, msg, nil)
+    _ref = AbsintheClient.WebSocket.push(client, {msg, nil})
     assert_push @control_topic, "doc", %{query: ^msg}
   end
 
-  test "push/3 sends a message to the server with variables" do
+  test "push/2 sends a message to the server with variables" do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    _ref = AbsintheClient.WebSocket.push(client, msg, %{"foo" => "bar"})
+    _ref = AbsintheClient.WebSocket.push(client, {msg, %{"foo" => "bar"}})
     assert_push @control_topic, "doc", %{query: ^msg, variables: %{"foo" => "bar"}}
   end
 
-  test "push/3 with ref replies to the caller" do
+  test "push/2 with ref replies to the caller" do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
