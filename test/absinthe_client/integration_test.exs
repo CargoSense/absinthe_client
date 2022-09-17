@@ -5,9 +5,7 @@ defmodule AbsintheClient.IntegrationTest do
 
   doctest AbsintheClient,
     only: [
-      :moduledoc,
-      attach: 2,
-      subscribe!: 3
+      attach: 2
     ]
 
   doctest AbsintheClient.WebSocket,
@@ -19,6 +17,6 @@ defmodule AbsintheClient.IntegrationTest do
       connect: 2,
       connect!: 1,
       connect!: 2,
-      push: 3
+      push: 2
     ]
 end
