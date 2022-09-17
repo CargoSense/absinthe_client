@@ -17,6 +17,7 @@ defmodule AbsintheClient.IntegrationTest do
       connect: 2,
       connect!: 1,
       connect!: 2,
-      push: 2
+      push: 2,
+      run: 1
     ]
 end
