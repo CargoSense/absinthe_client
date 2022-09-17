@@ -67,7 +67,10 @@ defmodule AbsintheClient.WebSocket do
   Dynamically starts (or re-uses already started) AbsintheWs
   process with the given options:
 
-    * `:url` - URL where to make the WebSocket connection.
+    * `:url` - URL where to make the WebSocket connection. When
+      provided as an option to `connect/2` the request's `base_url`
+      will be prepended to this path. The default value is
+      `"/socket/websocket"`.
 
     * `:headers` - list of headers to send on the initial
       HTTP request. Defaults to `[]`.
@@ -104,6 +107,8 @@ defmodule AbsintheClient.WebSocket do
   """
   @spec connect(request_or_options :: Request.t() | keyword) ::
           {:ok, Request.t()} | {:error, Exception.t()}
+  def connect(request_or_options)
+
   def connect(%Req.Request{} = request) do
     connect(request, [])
   end
@@ -134,15 +139,15 @@ defmodule AbsintheClient.WebSocket do
       true
   """
   @spec connect(Request.t(), keyword) :: {:ok, Request.t()} | {:error, Exception.t()}
-  def connect(%Request{} = req, options) when is_list(options) do
+  def connect(%Request{} = request, options) when is_list(options) do
     {parent, options} = Keyword.split(options, [:parent])
 
-    %{req | adapter: &run_ws_options/1}
+    %{request | adapter: &run_ws_options/1}
     |> Request.register_options([:parent])
     |> Request.merge_options(parent)
     |> Req.request([url: @default_socket_url] ++ options)
     |> case do
-      {:ok, %{body: socket}} -> {:ok, put_web_socket(req, socket)}
+      {:ok, %{body: socket}} -> {:ok, put_web_socket(request, socket)}
       {:error, _} = error -> error
     end
   end
@@ -246,23 +251,25 @@ defmodule AbsintheClient.WebSocket do
 
   @doc """
   Performs a GraphQL operation.
+
+  ## Examples
+
+      iex> req =
+      ...>   Req.new(base_url: "http://localhost:8001")
+      ...>   |> AbsintheClient.attach()
+      ...>   |> AbsintheClient.WebSocket.connect!()
+      iex> Req.request!(req, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      %{"__type" => %{"name" => "Repo"}}
   """
   @spec run(Request.t()) :: {Request.t(), Req.Response.t() | Exception.t()}
-  def run(%Request{} = req) do
-    receive_timeout = Map.get(req.options, :receive_timeout, @default_receive_timeout)
-    ref = push(req.options.web_socket, req.options.graphql)
+  def run(%Request{} = request) do
+    receive_timeout = Map.get(request.options, :receive_timeout, @default_receive_timeout)
+    ref = push(request.options.web_socket, request.options.graphql)
 
-    case Map.fetch(req.options, :async) do
-      {:ok, true} -> {req, Req.Response.new(body: ref)}
-      {:ok, false} -> req_await_reply(req, ref, receive_timeout)
-      :error -> req_await_reply(req, ref, receive_timeout)
-    end
-  end
-
-  defp req_await_reply(%Request{} = req, ref, receive_timeout) do
-    case await_reply(ref, receive_timeout) do
-      {:ok, reply} -> {req, reply_response(req, reply)}
-      {:error, reason} -> {req, reason}
+    case Map.fetch(request.options, :async) do
+      {:ok, true} -> {request, Req.Response.new(body: ref)}
+      {:ok, false} -> await_reply(request, ref, receive_timeout)
+      :error -> await_reply(request, ref, receive_timeout)
     end
   end
 
@@ -283,8 +290,8 @@ defmodule AbsintheClient.WebSocket do
   Returns the `pid` or `{name, node}` of a WebSocket process, `nil` otherwise.
   """
   @spec whereis(Request.t()) :: pid | {atom, node} | nil
-  def whereis(%Request{} = req) do
-    case Map.fetch(req.options, :web_socket) do
+  def whereis(%Request{} = request) do
+    case Map.fetch(request.options, :web_socket) do
       {:ok, socket} -> GenServer.whereis(socket)
       :error -> nil
     end
@@ -300,7 +307,9 @@ defmodule AbsintheClient.WebSocket do
       iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  @spec push(socket_or_req :: Request.t() | GenServer.server(), graphql()) :: reference()
+  @spec push(request_or_socket :: Request.t() | GenServer.server(), graphql()) :: reference()
+  def push(request_or_socket, graphql)
+
   def push(%Request{} = req, graphql) do
     socket = Map.fetch!(req.options, :web_socket)
     push(socket, graphql)
@@ -346,6 +355,13 @@ defmodule AbsintheClient.WebSocket do
     after
       timeout ->
         {:error, :timeout}
+    end
+  end
+
+  defp await_reply(%Request{} = req, ref, receive_timeout) do
+    case await_reply(ref, receive_timeout) do
+      {:ok, reply} -> {req, reply_response(req, reply)}
+      {:error, reason} -> {req, reason}
     end
   end
 
