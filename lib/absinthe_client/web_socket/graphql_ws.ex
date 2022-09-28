@@ -1,6 +1,7 @@
 defmodule AbsintheClient.WebSocket.GraphqlWs do
   @moduledoc false
   use GenServer
+  alias AbsintheClient.WebSocket.Push
 
   @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
   @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
@@ -13,15 +14,6 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
       GenServer.start_link(__MODULE__, {parent, config}, server_options)
     end
   end
-
-  @doc """
-  Sends a command to the GraphQL server.
-  """
-  def run(pid, doc) do
-    GenServer.call(pid, {:cmd, doc})
-  end
-
-  ## Private
 
   @impl GenServer
   def init({_parent, config}) do
@@ -68,23 +60,42 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
   defp ws_scheme(scheme), do: scheme
 
   @impl GenServer
+  def handle_info(%Push{pid: pid, event: event} = push, state)
+      when is_pid(pid) and event == "doc" do
+    msg = %{
+      id: inspect(push.ref),
+      payload: push.params,
+      type: "subscribe"
+    }
+
+    new_state = push_frame!(state, {:text, Jason.encode!(msg)})
+
+    {:noreply, new_state}
+  end
+
+  @impl GenServer
+  def handle_info({:clear_subscriptions, _pid, _ref_or_nil}, _state) do
+    raise "todo"
+  end
+
+  @impl GenServer
   def handle_info(msg, %{ref: ref} = state) do
     case Mint.WebSocket.stream(state.conn, msg) do
       {:ok, conn, [{:data, ^ref, data}]} ->
-        {:ok, ws, [frame]} = Mint.WebSocket.decode(state.ws, data)
+        {:ok, ws, frames} = Mint.WebSocket.decode(state.ws, data)
         state = %{state | conn: conn, ws: ws}
 
-        case frame do
-          {:text, binary} ->
+        Enum.reduce_while(frames, {:noreply, state}, fn
+          {:close, _, reason}, {:noreply, acc} ->
+            {:halt, {:stop, reason, acc}}
+
+          {:text, binary}, acc ->
             _decoded = binary |> Jason.decode!() |> dbg()
-            {:noreply, state}
+            {:cont, acc}
 
-          {:ping, _} ->
-            {:noreply, push_frame!(state, :pong)}
-
-          {:close, _, reason} ->
-            {:stop, reason, state}
-        end
+          {:ping, _}, {:noreply, acc} ->
+            {:cont, {:noreply, push_frame!(acc, :pong)}}
+        end)
 
       {:error, _conn, error, _responses} ->
         # todo: handle errors
@@ -117,21 +128,6 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
 
         {:noreply, state}
     end
-  end
-
-  @impl GenServer
-  def handle_call({:cmd, doc}, _from, state) do
-    msg = %{
-      id: inspect(make_ref()),
-      type: "subscribe",
-      payload: %{
-        query: doc
-      }
-    }
-
-    new_state = push_frame!(state, {:text, Jason.encode!(msg)})
-
-    {:reply, :ok, new_state}
   end
 
   defp cmd!(state, type, opts) do
