@@ -1,7 +1,9 @@
 defmodule AbsintheClient.WebSocket.GraphqlWs do
   @moduledoc false
   use GenServer
-  alias AbsintheClient.WebSocket.Push
+  alias AbsintheClient.WebSocket.{Message, Push}
+
+  defstruct [:config, :conn, :ref, :ws, queries: %{}]
 
   @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
   @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
@@ -22,7 +24,7 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     # todo: handle errors
     {:ok, conn} = Mint.HTTP.connect(http_scheme(uri), uri.host, uri.port, mint_options)
 
-    {:ok, %{config: config, conn: conn, ref: nil, ws: nil}, {:continue, :connect}}
+    {:ok, %__MODULE__{config: config, conn: conn}, {:continue, :connect}}
   end
 
   @impl GenServer
@@ -41,9 +43,7 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     {:ok, conn, ws} = Mint.WebSocket.new(conn, ref, status, resp_headers)
     state = %{state | conn: conn, ws: ws}
 
-    new_state = cmd!(state, "connection_init", []) |> dbg()
-
-    {:noreply, new_state}
+    send_and_cache("connection_init", Push.new(pid: self()), %{type: "connection_init"}, state)
   end
 
   defp path(%URI{path: nil}), do: "/graphql"
@@ -62,15 +62,10 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
   @impl GenServer
   def handle_info(%Push{pid: pid, event: event} = push, state)
       when is_pid(pid) and event == "doc" do
-    msg = %{
-      id: inspect(push.ref),
-      payload: push.params,
-      type: "subscribe"
-    }
+    id = inspect(push.ref)
+    msg = %{id: id, payload: push.params, type: "subscribe"}
 
-    new_state = push_frame!(state, {:text, Jason.encode!(msg)})
-
-    {:noreply, new_state}
+    send_and_cache(id, push, msg, state)
   end
 
   @impl GenServer
@@ -89,9 +84,33 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
           {:close, _, reason}, {:noreply, acc} ->
             {:halt, {:stop, reason, acc}}
 
-          {:text, binary}, acc ->
-            _decoded = binary |> Jason.decode!() |> dbg()
-            {:cont, acc}
+          {:text, binary}, {:noreply, acc} ->
+            result = binary |> Jason.decode!()
+
+            new_queries =
+              case result do
+                %{"id" => id, "type" => "complete"} ->
+                  state.queries |> Map.delete(id)
+
+                %{"id" => id} ->
+                  %Push{pid: pid} = push = Map.fetch!(state.queries, id)
+                  pid |> send(message(push, id, result))
+
+                  if result["type"] == "error" do
+                    state.queries |> Map.delete(id)
+                  else
+                    state.queries
+                  end
+
+                %{"type" => "connection_ack"} ->
+                  state.queries |> Map.delete("connection_init")
+
+                _ ->
+                  # todo: warn unknown graphql-ws message
+                  state.queries
+              end
+
+            {:cont, {:noreply, Map.put(acc, :queries, new_queries)}}
 
           {:ping, _}, {:noreply, acc} ->
             {:cont, {:noreply, push_frame!(acc, :pong)}}
@@ -130,17 +149,15 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     end
   end
 
-  defp cmd!(state, type, opts) do
-    case cmd(state, type, opts) do
-      {:ok, new_state} -> new_state
-      {:error, _, reason} -> raise reason
-    end
-  end
+  defp send_and_cache(id, %Push{} = push, message, %{queries: queries} = state) do
+    new_queries = Map.put(queries, id, push)
 
-  defp cmd(state, type, opts) do
-    msg = if opts[:payload], do: %{type: type, payload: opts[:payload]}, else: %{type: type}
+    new_state =
+      state
+      |> Map.put(:queries, new_queries)
+      |> push_frame!({:text, Jason.encode!(message)})
 
-    push_frame(state, {:text, Jason.encode!(msg)})
+    {:noreply, new_state}
   end
 
   defp push_frame!(state, frame) do
@@ -166,5 +183,24 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     with {:ok, conn} <- Mint.WebSocket.stream_request_body(conn, ref, data) do
       {:ok, conn, ws}
     end
+  end
+
+  defp message(%Push{} = push, id, result) do
+    {event, payload} =
+      case result do
+        %{"type" => "error", "payload" => [_ | _] = errors} ->
+          {"error", %{"errors" => errors}}
+
+        %{"type" => type, "payload" => payload} ->
+          {type, payload}
+      end
+
+    %Message{
+      topic: id,
+      event: event,
+      payload: payload,
+      push_ref: id,
+      ref: push.ref
+    }
   end
 end
