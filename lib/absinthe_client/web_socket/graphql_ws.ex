@@ -14,6 +14,15 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     end
   end
 
+  @doc """
+  Sends a command to the GraphQL server.
+  """
+  def run(pid, doc) do
+    GenServer.call(pid, {:cmd, doc})
+  end
+
+  ## Private
+
   @impl GenServer
   def init({_parent, config}) do
     %Slipstream.Configuration{uri: uri, mint_opts: mint_options} = config
@@ -40,7 +49,7 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     {:ok, conn, ws} = Mint.WebSocket.new(conn, ref, status, resp_headers)
     state = %{state | conn: conn, ws: ws}
 
-    {:ok, new_state} = push(state, "connection_init")
+    new_state = cmd!(state, "connection_init", []) |> dbg()
 
     {:noreply, new_state}
   end
@@ -59,11 +68,11 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
   defp ws_scheme(scheme), do: scheme
 
   @impl GenServer
-
   def handle_info(msg, %{ref: ref} = state) do
     case Mint.WebSocket.stream(state.conn, msg) do
       {:ok, conn, [{:data, ^ref, data}]} ->
         {:ok, ws, [frame]} = Mint.WebSocket.decode(state.ws, data)
+        state = %{state | conn: conn, ws: ws}
 
         case frame do
           {:text, binary} ->
@@ -71,12 +80,11 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
             {:noreply, state}
 
           {:ping, _} ->
-            {:ok, new_state} = push(state, "pong")
+            {:noreply, push_frame!(state, :pong)}
 
-            {:noreply, new_state}
+          {:close, _, reason} ->
+            {:stop, reason, state}
         end
-
-        {:noreply, %{state | conn: conn, ws: ws}}
 
       {:error, _conn, error, _responses} ->
         # todo: handle errors
@@ -111,22 +119,55 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     end
   end
 
-  defp push(state, type, opts \\ []) do
-    %{conn: conn, ws: ws, ref: ref} = state
+  @impl GenServer
+  def handle_call({:cmd, doc}, _from, state) do
+    msg = %{
+      id: inspect(make_ref()),
+      type: "subscribe",
+      payload: %{
+        query: doc
+      }
+    }
 
-    with {:ok, conn, ws} <- push(conn, ws, ref, type, opts) do
-      {:ok, %{state | conn: conn, ws: ws, ref: ref}}
+    new_state = push_frame!(state, {:text, Jason.encode!(msg)})
+
+    {:reply, :ok, new_state}
+  end
+
+  defp cmd!(state, type, opts) do
+    case cmd(state, type, opts) do
+      {:ok, new_state} -> new_state
+      {:error, _, reason} -> raise reason
     end
   end
 
-  defp push(conn, websocket, ref, type, opts) do
+  defp cmd(state, type, opts) do
     msg = if opts[:payload], do: %{type: type, payload: opts[:payload]}, else: %{type: type}
-    push_msg(conn, websocket, ref, Jason.encode!(msg))
+
+    push_frame(state, {:text, Jason.encode!(msg)})
   end
 
-  defp push_msg(conn, websocket, ref, msg) when is_binary(msg) do
-    with {:ok, ws, data} <- Mint.WebSocket.encode(websocket, {:text, msg}) do
-      {:ok, conn} = Mint.WebSocket.stream_request_body(conn, ref, data)
+  defp push_frame!(state, frame) do
+    case push_frame(state, frame) do
+      {:ok, new_state} -> new_state
+      {:error, _, reason} -> raise reason
+    end
+  end
+
+  defp push_frame(state, frame) do
+    %{conn: conn, ref: ref, ws: ws} = state
+
+    with {:ok, conn, ws} <- push_frame(conn, ws, ref, frame) do
+      {:ok, %{state | conn: conn, ws: ws}}
+    end
+  end
+
+  defp push_frame(conn, websocket, ref, frame)
+       when (is_atom(frame) and frame in [:ping, :pong, :close]) or
+              (is_tuple(frame) and tuple_size(frame) == 2) do
+    {:ok, ws, data} = Mint.WebSocket.encode(websocket, frame)
+
+    with {:ok, conn} <- Mint.WebSocket.stream_request_body(conn, ref, data) do
       {:ok, conn, ws}
     end
   end

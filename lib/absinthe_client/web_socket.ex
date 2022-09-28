@@ -354,6 +354,7 @@ defmodule AbsintheClient.WebSocket do
         {:ok, reply}
     after
       timeout ->
+        # todo: convert to Exception.t()
         {:error, :timeout}
     end
   end
