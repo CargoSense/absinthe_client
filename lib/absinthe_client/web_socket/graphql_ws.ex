@@ -22,12 +22,12 @@ defmodule AbsintheClient.WebSocket.GraphqlWs do
     # todo: handle errors
     {:ok, conn} = Mint.HTTP.connect(http_scheme(uri), uri.host, uri.port, mint_options)
 
-    {:ok, %{config: config, conn: conn, uri: uri, ref: nil, ws: nil}, {:continue, :connect}}
+    {:ok, %{config: config, conn: conn, ref: nil, ws: nil}, {:continue, :connect}}
   end
 
   @impl GenServer
   def handle_continue(:connect, state) do
-    %{config: config, conn: conn, uri: uri} = state
+    %{config: %Slipstream.Configuration{uri: uri} = config, conn: conn} = state
     headers = [{"Sec-WebSocket-Protocol", "graphql-transport-ws"}] ++ config.headers
 
     {:ok, conn, ref} = Mint.WebSocket.upgrade(ws_scheme(uri), conn, path(uri), headers)
