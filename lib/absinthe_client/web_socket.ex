@@ -81,6 +81,10 @@ defmodule AbsintheClient.WebSocket do
         * `:timeout` - socket connect timeout in milliseconds,
           defaults to `30_000`.
 
+    * `:connect_params` - Optional. Custom params to be sent when the
+      WebSocket connects. Defaults to sending the bearer Authorization
+      token if one is present on the request. The default value is `nil`.
+
     * `:parent` - pid of the process starting the connection.
       The socket monitors this process and shuts down when
       the parent process exits. Defaults to `self()`.
@@ -160,6 +164,7 @@ defmodule AbsintheClient.WebSocket do
     parent = Map.get(req.options, :parent, self())
 
     req = update_in(req.url.scheme, &String.replace(&1, "http", "ws"))
+    req = put_connect_params(req)
     mint_options = Map.get(req.options, :connect_options, [])
 
     config_options = [
@@ -188,6 +193,35 @@ defmodule AbsintheClient.WebSocket do
 
       {:error, _} = error ->
         {req, error}
+    end
+  end
+
+  defp put_connect_params(%Request{} = req) do
+    case Map.fetch(req.options, :connect_params) do
+      {:ok, params} ->
+        put_connect_params(req, params)
+
+      :error ->
+        maybe_put_auth_params(req)
+    end
+  end
+
+  defp put_connect_params(%Request{} = req, params) do
+    encoded = URI.encode_query(params)
+
+    update_in(req.url.query, fn
+      nil -> encoded
+      query -> query <> "&" <> encoded
+    end)
+  end
+
+  defp maybe_put_auth_params(%Request{} = req) do
+    case Map.fetch(req.options, :auth) do
+      {:ok, {:bearer, token}} ->
+        put_connect_params(req, %{"Authorization" => "Bearer #{token}"})
+
+      _ ->
+        req
     end
   end
 

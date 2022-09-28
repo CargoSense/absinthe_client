@@ -11,7 +11,7 @@ defmodule AbsintheClient do
   alias AbsintheClient.{Utils, WebSocket}
   alias Req.Request
 
-  @allowed_options ~w(graphql web_socket async)a
+  @allowed_options ~w(graphql web_socket async connect_params)a
 
   @default_url "/graphql"
 
@@ -44,6 +44,10 @@ defmodule AbsintheClient do
       option is present. The response body will be a `reference()` and
       you will need to receive the `AbsintheClient.WebSocket.Reply`
       message. The default value is `false`.
+
+    * `:connect_params` - Optional. Custom params to be sent when the
+      WebSocket connects. Defaults to sending the bearer Authorization
+      token if one is present on the request. The default value is `nil`.
 
   If you want to set any of these options when attaching the plugin,
   pass them as the second argument.
@@ -184,6 +188,75 @@ defmodule AbsintheClient do
       ...> )
       iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
       AbsintheClient.Subscription
+
+  Authorization via the request `:auth` option:
+
+      iex> req =
+      ...>   Req.new(base_url: "http://localhost:8001/", auth: {:bearer, "valid-token"})
+      ...>   |> AbsintheClient.attach()
+      ...>   |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> res = Req.request!(req,
+      ...>   async: true,
+      ...>   graphql: {
+      ...>     \"""
+      ...>     subscription ($repository: Repository!) {
+      ...>       repoCommentSubscribe(repository: $repository) {
+      ...>         id
+      ...>         commentary
+      ...>       }
+      ...>     }
+      ...>     \""",
+      ...>     %{"repository" => "ELIXIR"}
+      ...>   }
+      ...> )
+      iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
+      AbsintheClient.Subscription
+
+  Custom authorization via `:connect_params` map literal:
+
+      iex> req =
+      ...>   Req.new(base_url: "http://localhost:8001/")
+      ...>   |> AbsintheClient.attach(connect_params: %{"token" => "valid-token"})
+      ...>   |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> res = Req.request!(req,
+      ...>   async: true,
+      ...>   graphql: {
+      ...>     \"""
+      ...>     subscription ($repository: Repository!) {
+      ...>       repoCommentSubscribe(repository: $repository) {
+      ...>         id
+      ...>         commentary
+      ...>       }
+      ...>     }
+      ...>     \""",
+      ...>     %{"repository" => "ELIXIR"}
+      ...>   }
+      ...> )
+      iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
+      AbsintheClient.Subscription
+
+  Failed authorization replies will timeout:
+
+      iex> req =
+      ...>   Req.new(base_url: "http://localhost:8001/", auth: {:bearer, "invalid-token"})
+      ...>   |> AbsintheClient.attach(retry: :never)
+      ...>   |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> res = Req.request!(req,
+      ...>   async: true,
+      ...>   graphql: {
+      ...>     \"""
+      ...>     subscription ($repository: Repository!) {
+      ...>       repoCommentSubscribe(repository: $repository) {
+      ...>         id
+      ...>         commentary
+      ...>       }
+      ...>     }
+      ...>     \""",
+      ...>     %{"repository" => "ELIXIR"}
+      ...>   }
+      ...> )
+      iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
+      ** (RuntimeError) timeout
 
   ### Subscription data
 
