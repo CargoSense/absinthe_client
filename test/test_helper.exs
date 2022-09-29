@@ -186,6 +186,29 @@ defmodule AbsintheClientTest.UserSocket do
   def id(_socket), do: nil
 end
 
+defmodule AbsintheClientTest.AuthSocket do
+  use Phoenix.Socket
+
+  use Absinthe.Phoenix.Socket,
+    schema: AbsintheClientTest.Schema
+
+  @impl Phoenix.Socket
+  def connect(params, socket, _conn_info) do
+    case fetch_token(params) do
+      {:ok, "valid-token"} -> {:ok, socket}
+      {:ok, "invalid-token"} -> {:error, :unauthorized}
+      _ -> {:error, :bad_request}
+    end
+  end
+
+  defp fetch_token(%{"Authorization" => "Bearer " <> t}), do: {:ok, t}
+  defp fetch_token(%{"token" => t}), do: {:ok, t}
+  defp fetch_token(_), do: :error
+
+  @impl Phoenix.Socket
+  def id(_socket), do: nil
+end
+
 defmodule AbsintheClientTest.Endpoint do
   use Phoenix.Endpoint, otp_app: :absinthe_client
   use Absinthe.Phoenix.Endpoint
@@ -196,6 +219,10 @@ defmodule AbsintheClientTest.Endpoint do
     signing_salt: "tr9gMQxErRYmg4"
 
   socket "/socket", AbsintheClientTest.UserSocket,
+    websocket: true,
+    longpoll: false
+
+  socket "/auth-socket", AbsintheClientTest.AuthSocket,
     websocket: true,
     longpoll: false
 
