@@ -13,7 +13,8 @@ defmodule AbsintheClient.WebSocketTest do
     end
 
     def init(%Req.Request{} = req) do
-      AbsintheClient.WebSocket.connect(req)
+      ws = AbsintheClient.WebSocket.connect!(req)
+      {:ok, %{req: req, ws: ws}}
     end
 
     def handle_call({:call, fun}, _, state) when is_function(fun, 1) do
@@ -97,15 +98,15 @@ defmodule AbsintheClient.WebSocketTest do
     client = AbsintheClient.attach(Req.new(base_url: socket_url))
     listener_pid = start_supervised!({Listener, client})
 
-    socket_pid =
-      Listener.call(listener_pid, fn req ->
-        {:reply, req.options.web_socket, req}
+    ws_name =
+      Listener.call(listener_pid, fn %{ws: ws} = state ->
+        {:reply, ws, state}
       end)
 
-    socket_monitor = Process.monitor(socket_pid)
+    ref = Process.monitor(ws_name)
 
     Process.exit(listener_pid, :shutdown)
 
-    assert_receive {:DOWN, ^socket_monitor, :process, _, :shutdown}
+    assert_receive {:DOWN, ^ref, :process, _, :shutdown}
   end
 end

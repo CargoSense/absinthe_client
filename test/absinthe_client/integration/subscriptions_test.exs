@@ -7,8 +7,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
     def start_link(arg), do: GenServer.start_link(__MODULE__, arg)
 
     def init({client, parent}) do
-      client = AbsintheClient.WebSocket.connect!(client)
-      socket_name = client.options.web_socket
+      socket_name = AbsintheClient.WebSocket.connect!(client)
 
       {:ok, %{parent: parent, client: client, socket: socket_name}}
     end
@@ -32,6 +31,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       subscription =
         Req.request!(
           state.client,
+          web_socket: state.socket,
           graphql: {
             """
             subscription RepoCommentSubscription($repository: Repository!){
