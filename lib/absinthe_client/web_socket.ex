@@ -19,22 +19,18 @@ defmodule AbsintheClient.WebSocket do
 
   Performing a `query` operation over a WebSocket:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!()
-      iex> Req.request!(req, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> ws = req |> AbsintheClient.WebSocket.connect!()
+      iex> Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
 
   Performing an async `query` operation and awaiting the reply:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!()
+      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> reply =
       ...>   req
-      ...>   |> Req.request!(async: true, graphql: ~S|{ __type(name: "Repo") { name } }|)
+      ...>   |> Req.request!(web_socket: ws, async: true, graphql: ~S|{ __type(name: "Repo") { name } }|)
       ...>   |> AbsintheClient.WebSocket.await_reply!()
       iex> reply.payload["data"]
       %{"__type" => %{"name" => "Repo"}}
@@ -58,6 +54,8 @@ defmodule AbsintheClient.WebSocket do
   alias Req.Request
 
   @type graphql :: String.t() | {String.t(), nil | map()}
+
+  @type web_socket :: GenServer.server()
 
   @default_receive_timeout 15_000
 
@@ -99,18 +97,18 @@ defmodule AbsintheClient.WebSocket do
   From a request:
 
       iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
-      iex> {:ok, req} = req |> AbsintheClient.WebSocket.connect()
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect()
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
 
   From keyword options:
 
-      iex> {:ok, req} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
   @spec connect(request_or_options :: Request.t() | keyword) ::
-          {:ok, Request.t()} | {:error, Exception.t()}
+          {:ok, web_socket()} | {:error, Exception.t()}
   def connect(request_or_options)
 
   def connect(%Req.Request{} = request) do
@@ -131,18 +129,18 @@ defmodule AbsintheClient.WebSocket do
   With the default URL path:
 
       iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
-      iex> {:ok, req} = req |> AbsintheClient.WebSocket.connect()
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect()
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
 
   With a custom URL path:
 
       iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
-      iex> {:ok, req} = req |> AbsintheClient.WebSocket.connect(url: "/socket/websocket")
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(url: "/socket/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
-  @spec connect(Request.t(), keyword) :: {:ok, Request.t()} | {:error, Exception.t()}
+  @spec connect(Request.t(), keyword) :: {:ok, web_socket()} | {:error, Exception.t()}
   def connect(%Request{} = request, options) when is_list(options) do
     {parent, options} = Keyword.split(options, [:parent])
 
@@ -151,13 +149,9 @@ defmodule AbsintheClient.WebSocket do
     |> Request.merge_options(parent)
     |> Req.request([url: @default_socket_url] ++ options)
     |> case do
-      {:ok, %{body: socket}} -> {:ok, put_web_socket(request, socket)}
+      {:ok, %{body: socket}} -> {:ok, socket}
       {:error, _} = error -> error
     end
-  end
-
-  defp put_web_socket(%Request{} = req, name) do
-    Request.merge_options(req, web_socket: name)
   end
 
   defp run_ws_options(%Request{} = req) do
@@ -232,23 +226,20 @@ defmodule AbsintheClient.WebSocket do
 
   From a request:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!()
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> ws = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.WebSocket.connect!()
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
 
   From keyword options:
 
-      iex> req = AbsintheClient.WebSocket.connect!(url: "ws://localhost:8001/socket/websocket")
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> ws = AbsintheClient.WebSocket.connect!(url: "ws://localhost:8001/socket/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
-  @spec connect!(request_or_options :: Request.t() | keyword) :: Request.t()
+  @spec connect!(request_or_options :: Request.t() | keyword) :: web_socket()
   def connect!(request_or_options) do
     case connect(request_or_options) do
-      {:ok, req} -> req
+      {:ok, ws} -> ws
       {:error, error} -> raise error
     end
   end
@@ -258,14 +249,13 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!(url: "/socket/websocket")
-      iex> req |> AbsintheClient.WebSocket.whereis() |> Process.alive?()
+      iex> ws =
+      ...>  Req.new(base_url: "http://localhost:8001")
+      ...>  |> AbsintheClient.WebSocket.connect!(url: "/socket/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
-  @spec connect!(Request.t(), keyword) :: Request.t()
+  @spec connect!(Request.t(), keyword) :: web_socket()
   def connect!(request, options) do
     case connect(request, options) do
       {:ok, req} -> req
@@ -288,11 +278,9 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!()
-      iex> Req.request!(req, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
+      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> ws = req |> AbsintheClient.WebSocket.connect!()
+      iex> Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
   @spec run(Request.t()) :: {Request.t(), Req.Response.t() | Exception.t()}
@@ -321,17 +309,6 @@ defmodule AbsintheClient.WebSocket do
   defp ws_response_body(_req, %{payload: payload}), do: payload
 
   @doc """
-  Returns the `pid` or `{name, node}` of a WebSocket process, `nil` otherwise.
-  """
-  @spec whereis(Request.t()) :: pid | {atom, node} | nil
-  def whereis(%Request{} = request) do
-    case Map.fetch(request.options, :web_socket) do
-      {:ok, socket} -> GenServer.whereis(socket)
-      :error -> nil
-    end
-  end
-
-  @doc """
   Pushes a `query` to the server via the given `socket`.
 
   ## Examples
@@ -341,7 +318,7 @@ defmodule AbsintheClient.WebSocket do
       iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  @spec push(request_or_socket :: Request.t() | GenServer.server(), graphql()) :: reference()
+  @spec push(request_or_socket :: Request.t() | web_socket(), graphql()) :: reference()
   def push(request_or_socket, graphql)
 
   def push(%Request{} = req, graphql) do
@@ -368,8 +345,8 @@ defmodule AbsintheClient.WebSocket do
   ## Examples
 
       iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach(async: true)
-      iex> {:ok, req} = AbsintheClient.WebSocket.connect(req)
-      iex> {:ok, res} = Req.request(req, graphql: ~S|{ __type(name: "Repo") { name } }|)
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+      iex> {:ok, res} = Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(res)
       iex> reply.payload["data"]
       %{"__type" => %{"name" => "Repo"}}
@@ -404,11 +381,9 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach(async: true)
-      ...>   |> AbsintheClient.WebSocket.connect!()
-      iex> res = Req.post!(req, graphql: ~S|{ __type(name: "Repo") { name } }|)
+      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach(async: true)
+      iex> ws = req |> AbsintheClient.WebSocket.connect!()
+      iex> res = Req.post!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> AbsintheClient.WebSocket.await_reply!(res).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
@@ -429,10 +404,10 @@ defmodule AbsintheClient.WebSocket do
 
   # Clears all subscriptions on the given socket.
   @doc false
-  @spec clear_subscriptions(socket :: GenServer.server()) :: :ok
-  @spec clear_subscriptions(socket :: GenServer.server(), ref_or_nil :: nil | reference()) :: :ok
-  def clear_subscriptions(socket, ref \\ nil) when is_nil(ref) or is_reference(ref) do
-    send(socket, {:clear_subscriptions, self(), ref})
+  @spec clear_subscriptions(web_socket) :: :ok
+  @spec clear_subscriptions(web_socket, ref_or_nil :: nil | reference()) :: :ok
+  def clear_subscriptions(ws, ref \\ nil) when is_nil(ref) or is_reference(ref) do
+    send(ws, {:clear_subscriptions, self(), ref})
     :ok
   end
 end

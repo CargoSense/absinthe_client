@@ -147,11 +147,10 @@ defmodule AbsintheClient do
 
   Performing a `subscription` operation:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!()
+      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> Req.request!(req,
+      ...>   web_socket: ws,
       ...>   graphql: {
       ...>     \"""
       ...>     subscription ($repository: Repository!) {
@@ -168,11 +167,10 @@ defmodule AbsintheClient do
 
   Performing an asynchronous `subscription` operation and awaiting the reply:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001")
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!()
+      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> res = Req.request!(req,
+      ...>   web_socket: ws,
       ...>   async: true,
       ...>   graphql: {
       ...>     \"""
@@ -191,11 +189,10 @@ defmodule AbsintheClient do
 
   Authorization via the request `:auth` option:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:8001/", auth: {:bearer, "valid-token"})
-      ...>   |> AbsintheClient.attach()
-      ...>   |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> req = Req.new(base_url: "http://localhost:8001/", auth: {:bearer, "valid-token"}) |> AbsintheClient.attach()
+      iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
       iex> res = Req.request!(req,
+      ...>   web_socket: ws,
       ...>   async: true,
       ...>   graphql: {
       ...>     \"""
@@ -217,8 +214,9 @@ defmodule AbsintheClient do
       iex> req =
       ...>   Req.new(base_url: "http://localhost:8001/")
       ...>   |> AbsintheClient.attach(connect_params: %{"token" => "valid-token"})
-      ...>   |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
       iex> res = Req.request!(req,
+      ...>   web_socket: ws,
       ...>   async: true,
       ...>   graphql: {
       ...>     \"""
@@ -240,8 +238,9 @@ defmodule AbsintheClient do
       iex> req =
       ...>   Req.new(base_url: "http://localhost:8001/", auth: {:bearer, "invalid-token"})
       ...>   |> AbsintheClient.attach(retry: :never)
-      ...>   |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
       iex> res = Req.request!(req,
+      ...>   web_socket: ws,
       ...>   async: true,
       ...>   graphql: {
       ...>     \"""
