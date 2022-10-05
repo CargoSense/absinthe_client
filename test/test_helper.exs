@@ -1,5 +1,5 @@
 Application.put_env(:absinthe_client, AbsintheClientTest.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 8001],
+  http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "HOJE5xctETrtYS5RfAG+Ivz35iKH7JXyVz7MN6ExwmjIDVMVXoMbpHrp8ZEt++cK",
   check_origin: false,
   pubsub_server: AbsintheClientTest.PubSub,

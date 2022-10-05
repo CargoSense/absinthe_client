@@ -19,14 +19,14 @@ defmodule AbsintheClient.WebSocket do
 
   Performing a `query` operation over a WebSocket:
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
 
   Performing an async `query` operation and awaiting the reply:
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> reply =
       ...>   req
@@ -96,14 +96,14 @@ defmodule AbsintheClient.WebSocket do
 
   From a request:
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect()
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
 
   From keyword options:
 
-      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:4002/socket/websocket")
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
@@ -128,14 +128,14 @@ defmodule AbsintheClient.WebSocket do
 
   With the default URL path:
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect()
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
 
   With a custom URL path:
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(url: "/socket/websocket")
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
@@ -226,13 +226,13 @@ defmodule AbsintheClient.WebSocket do
 
   From a request:
 
-      iex> ws = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.WebSocket.connect!()
+      iex> ws = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.WebSocket.connect!()
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
 
   From keyword options:
 
-      iex> ws = AbsintheClient.WebSocket.connect!(url: "ws://localhost:8001/socket/websocket")
+      iex> ws = AbsintheClient.WebSocket.connect!(url: "ws://localhost:4002/socket/websocket")
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
@@ -250,7 +250,7 @@ defmodule AbsintheClient.WebSocket do
   ## Examples
 
       iex> ws =
-      ...>  Req.new(base_url: "http://localhost:8001")
+      ...>  Req.new(base_url: "http://localhost:4002")
       ...>  |> AbsintheClient.WebSocket.connect!(url: "/socket/websocket")
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
@@ -278,7 +278,7 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach()
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|).body["data"]
       %{"__type" => %{"name" => "Repo"}}
@@ -313,7 +313,7 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> {:ok, req} = AbsintheClient.WebSocket.connect(url: "ws://localhost:8001/socket/websocket")
+      iex> {:ok, req} = AbsintheClient.WebSocket.connect(url: "ws://localhost:4002/socket/websocket")
       iex> ref = AbsintheClient.WebSocket.push(req, ~S|{ __type(name: "Repo") { name } }|)
       iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
@@ -344,7 +344,7 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach(async: true)
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach(async: true)
       iex> {:ok, ws} = AbsintheClient.WebSocket.connect(req)
       iex> {:ok, res} = Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> {:ok, reply} = AbsintheClient.WebSocket.await_reply(res)
@@ -381,7 +381,7 @@ defmodule AbsintheClient.WebSocket do
 
   ## Examples
 
-      iex> req = Req.new(base_url: "http://localhost:8001") |> AbsintheClient.attach(async: true)
+      iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach(async: true)
       iex> ws = req |> AbsintheClient.WebSocket.connect!()
       iex> res = Req.post!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
       iex> AbsintheClient.WebSocket.await_reply!(res).payload["data"]
