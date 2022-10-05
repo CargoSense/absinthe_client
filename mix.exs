@@ -34,7 +34,7 @@ defmodule Absinthe.Socket.MixProject do
 
   defp package do
     [
-      description: "AbsintheClient is an Elixir GraphQL client designed for Absinthe.",
+      description: "AbsintheClient is a GraphQL client designed for Elixir Absinthe.",
       licenses: ["MIT"],
       links: %{
         "GitHub" => @source_url
@@ -61,7 +61,7 @@ defmodule Absinthe.Socket.MixProject do
       deps: [],
       language: "en",
       formatters: ["html"],
-      main: AbsintheClient,
+      main: "readme",
       groups_for_functions: [
         "Request steps": &(&1[:step] == :request),
         "Response steps": &(&1[:step] == :response),
@@ -77,6 +77,10 @@ defmodule Absinthe.Socket.MixProject do
           AbsintheClient.WebSocket.Message,
           AbsintheClient.WebSocket.Reply
         ]
+      ],
+      extras: [
+        "README.md",
+        "CHANGELOG.md"
       ]
     ]
   end
