@@ -1,8 +1,6 @@
 defmodule AbsintheClient.IntegrationTest do
   use ExUnit.Case
 
-  @moduletag :integration
-
   doctest AbsintheClient,
     only: [
       attach: 2

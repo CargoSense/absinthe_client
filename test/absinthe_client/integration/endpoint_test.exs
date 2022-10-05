@@ -4,8 +4,6 @@ defmodule AbsintheClient.Integration.EndpointTest do
   use ExUnit.Case
   alias AbsintheClientTest.Endpoint
 
-  @moduletag :integration
-
   setup do
     {:ok, url: Endpoint.graphql_url()}
   end
