@@ -172,7 +172,7 @@ defmodule AbsintheClientTest.Schema do
 end
 
 defmodule AbsintheClientTest.UserSocket do
-  use Phoenix.Socket
+  use Phoenix.Socket, log: :debug
 
   use Absinthe.Phoenix.Socket,
     schema: AbsintheClientTest.Schema
@@ -187,7 +187,7 @@ defmodule AbsintheClientTest.UserSocket do
 end
 
 defmodule AbsintheClientTest.AuthSocket do
-  use Phoenix.Socket
+  use Phoenix.Socket, log: :debug
 
   use Absinthe.Phoenix.Socket,
     schema: AbsintheClientTest.Schema
