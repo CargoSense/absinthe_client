@@ -10,58 +10,128 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   ## Examples
 
-      AbsintheClient.WebSocket.AbsintheWs.start_link({self(), url: "wss://example.com/subscriptions/websocket"})
+      AbsintheClient.WebSocket.AbsintheWs.start_link(
+        parent: self(),
+        config: [url: "wss://example.com/subscriptions/websocket"]
+      )
 
   """
-  @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
-  @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
-          GenServer.on_start()
-  def start_link(config) when is_list(config), do: start_link({self(), config, []})
-  def start_link({parent, config}) when is_pid(parent), do: start_link({parent, config, []})
+  @spec start_link(Keyword.t()) :: GenServer.on_start()
+  def start_link(arg) do
+    {options, server_options} = Keyword.split(arg, [:config, :connect_params, :parent])
+    config = Keyword.fetch!(options, :config)
+    connect_params = Keyword.get(options, :connect_params)
+    parent = Keyword.fetch!(options, :parent)
 
-  def start_link({parent, config, options}) do
-    with {:ok, _config} <- Slipstream.Configuration.validate(config) do
-      Slipstream.start_link(__MODULE__, {parent, config}, options)
+    with {:ok, _struct_config} <- Slipstream.Configuration.validate(config) do
+      Slipstream.start_link(__MODULE__, {parent, config, connect_params}, server_options)
     end
   end
 
   @impl Slipstream
-  def init({parent, config}) do
+  def init({parent, config, connect_params}) do
     parent_ref = Process.monitor(parent)
 
-    socket =
-      config
-      |> Slipstream.connect!()
-      |> Slipstream.Socket.assign(
-        parent: parent,
-        parent_ref: parent_ref,
-        pids: %{},
-        channel_connected: false,
-        active_subscriptions: %{},
-        inflight: %{},
-        pending: []
-      )
+    Slipstream.Socket.new()
+    |> Slipstream.Socket.assign(
+      config: config,
+      connect_params: connect_params,
+      parent: parent,
+      parent_ref: parent_ref,
+      pids: %{},
+      channel_connected: false,
+      active_subscriptions: %{},
+      inflight: %{},
+      pending: [],
+      connected_counter: 0
+    )
+    |> connect_with_params()
+  end
 
-    {:ok, socket}
+  defp connect_with_params(%{assigns: %{connect_params: nil}} = socket) do
+    Slipstream.connect(socket, socket.assigns.config)
+  end
+
+  defp connect_with_params(socket) do
+    socket =
+      update(socket, :config, fn config ->
+        Keyword.update!(config, :uri, fn uri ->
+          uri
+          |> URI.parse()
+          |> apply_connect_params(
+            socket.assigns.connect_params,
+            socket.assigns.connected_counter
+          )
+          |> URI.to_string()
+        end)
+      end)
+
+    Slipstream.connect(socket, socket.assigns.config)
+  end
+
+  defp apply_connect_params(uri, params, _) when is_map(params) do
+    encoded = URI.encode_query(params)
+
+    update_in(uri.query, fn
+      nil -> encoded
+      query -> query <> "&" <> encoded
+    end)
+  end
+
+  defp apply_connect_params(uri, connect_params, reconnects) do
+    params =
+      cond do
+        is_function(connect_params, 0) ->
+          connect_params.()
+
+        is_function(connect_params, 1) ->
+          connect_params.(reconnects)
+
+        true ->
+          raise ArgumentError,
+                "expected :connect_params to be a map or a function ( -> map), got: #{inspect(connect_params)}"
+      end
+
+    case params do
+      map when is_map(map) ->
+        apply_connect_params(uri, map, reconnects)
+
+      other ->
+        raise ArgumentError, "expected :connect_params to return a map, got: #{inspect(other)}"
+    end
   end
 
   @impl Slipstream
   def handle_connect(socket) do
-    {:ok, join(socket, @control_topic)}
+    {:ok, socket |> join(@control_topic) |> update(:connected_counter, &(&1 + 1))}
+  end
+
+  @impl Slipstream
+  def handle_disconnect({:error, {_, %{status_code: 403}}}, socket) do
+    case connect_with_params(socket) do
+      {:ok, socket} ->
+        {:ok, reload_subscriptions(socket)}
+
+      {:error, reason} ->
+        {:stop, reason, socket}
+    end
   end
 
   @impl Slipstream
   def handle_disconnect(_reason, socket) do
     case reconnect(socket) do
       {:ok, socket} ->
-        {:ok,
-         socket
-         |> assign(:channel_connected, false)
-         |> enqueue_active_subscriptions()}
+        {:ok, reload_subscriptions(socket)}
 
       {:error, reason} ->
         {:stop, reason, socket}
     end
+  end
+
+  defp reload_subscriptions(socket) do
+    socket
+    |> assign(:channel_connected, false)
+    |> enqueue_active_subscriptions()
   end
 
   @impl Slipstream

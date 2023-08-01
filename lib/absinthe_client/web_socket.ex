@@ -142,11 +142,11 @@ defmodule AbsintheClient.WebSocket do
   """
   @spec connect(Request.t(), keyword) :: {:ok, web_socket()} | {:error, Exception.t()}
   def connect(%Request{} = request, options) when is_list(options) do
-    {parent, options} = Keyword.split(options, [:parent])
+    {ws_options, options} = Keyword.split(options, [:connect_params, :parent])
 
     %{request | adapter: &run_ws_options/1}
-    |> Request.register_options([:parent])
-    |> Request.merge_options(parent)
+    |> Request.register_options([:connect_params, :parent])
+    |> Request.merge_options(ws_options)
     |> Req.request([url: @default_socket_url] ++ options)
     |> case do
       {:ok, %{body: socket}} -> {:ok, socket}
@@ -158,7 +158,7 @@ defmodule AbsintheClient.WebSocket do
     parent = Map.get(req.options, :parent, self())
 
     req = update_in(req.url.scheme, &String.replace(&1, "http", "ws"))
-    req = put_connect_params(req)
+    connect_params = Map.get(req.options, :connect_params)
     mint_options = Map.get(req.options, :connect_options, [])
 
     config_options = [
@@ -172,11 +172,13 @@ defmodule AbsintheClient.WebSocket do
 
     case Slipstream.Configuration.validate(config_options) do
       {:ok, _config} ->
-        name = custom_socket_name([parent: parent] ++ config_options)
+        name =
+          custom_socket_name([connect_params: connect_params, parent: parent] ++ config_options)
 
         case DynamicSupervisor.start_child(
                AbsintheClient.SocketSupervisor,
-               {AbsintheClient.WebSocket.AbsintheWs, {parent, config_options, [name: name]}}
+               {AbsintheClient.WebSocket.AbsintheWs,
+                parent: parent, config: config_options, connect_params: connect_params, name: name}
              ) do
           {:ok, _} ->
             {req, Req.Response.new(body: name)}
@@ -187,35 +189,6 @@ defmodule AbsintheClient.WebSocket do
 
       {:error, _} = error ->
         {req, error}
-    end
-  end
-
-  defp put_connect_params(%Request{} = req) do
-    case Map.fetch(req.options, :connect_params) do
-      {:ok, params} ->
-        put_connect_params(req, params)
-
-      :error ->
-        maybe_put_auth_params(req)
-    end
-  end
-
-  defp put_connect_params(%Request{} = req, params) do
-    encoded = URI.encode_query(params)
-
-    update_in(req.url.query, fn
-      nil -> encoded
-      query -> query <> "&" <> encoded
-    end)
-  end
-
-  defp maybe_put_auth_params(%Request{} = req) do
-    case Map.fetch(req.options, :auth) do
-      {:ok, {:bearer, token}} ->
-        put_connect_params(req, %{"Authorization" => "Bearer #{token}"})
-
-      _ ->
-        req
     end
   end
 

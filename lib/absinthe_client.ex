@@ -45,9 +45,10 @@ defmodule AbsintheClient do
       you will need to receive the `AbsintheClient.WebSocket.Reply`
       message. The default value is `false`.
 
-    * `:connect_params` - Optional. Custom params to be sent when the
-      WebSocket connects. Defaults to sending the bearer Authorization
-      token if one is present on the request. The default value is `nil`.
+    * `:connect_params` - Optional. A map, or a function returning a map
+      of params to be sent when the WebSocket connects. If given a function
+      it will be invoked on each connection and it can be either a 0-arity
+      or a 1-arity that receives the number of reconnection attempts.
 
   If you want to set any of these options when attaching the plugin,
   pass them as the second argument.
@@ -187,10 +188,13 @@ defmodule AbsintheClient do
       iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
       AbsintheClient.Subscription
 
-  Authorization via the request `:auth` option:
+  Authorization via `:connect_params` function:
 
-      iex> req = Req.new(base_url: "http://localhost:4002/", auth: {:bearer, "valid-token"}) |> AbsintheClient.attach()
-      iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> req = Req.new(base_url: "http://localhost:4002/") |> AbsintheClient.attach()
+      iex> ws = AbsintheClient.WebSocket.connect!(req,
+      ...>   url: "/auth-socket/websocket",
+      ...>   connect_params: fn -> %{"token" => "valid-token"} end
+      ...> )
       iex> res = Req.request!(req,
       ...>   web_socket: ws,
       ...>   async: true,
@@ -209,12 +213,13 @@ defmodule AbsintheClient do
       iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
       AbsintheClient.Subscription
 
-  Custom authorization via `:connect_params` map literal:
+  Authorization via `:connect_params` map literal:
 
-      iex> req =
-      ...>   Req.new(base_url: "http://localhost:4002/")
-      ...>   |> AbsintheClient.attach(connect_params: %{"token" => "valid-token"})
-      iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> req = Req.new(base_url: "http://localhost:4002/") |> AbsintheClient.attach()
+      iex> ws = AbsintheClient.WebSocket.connect!(req,
+      ...>   url: "/auth-socket/websocket",
+      ...>   connect_params: %{"token" => "valid-token"}
+      ...> )
       iex> res = Req.request!(req,
       ...>   web_socket: ws,
       ...>   async: true,

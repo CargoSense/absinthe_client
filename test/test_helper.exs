@@ -7,6 +7,10 @@ Application.put_env(:absinthe_client, AbsintheClientTest.Endpoint,
   server: true
 )
 
+# We are stuck with this until we can make Absinthe.Phoenix.Channel logging
+# configurable from the outside.
+Logger.configure(level: :warn)
+
 defmodule AbsintheClientTest.DB do
   use Supervisor
 

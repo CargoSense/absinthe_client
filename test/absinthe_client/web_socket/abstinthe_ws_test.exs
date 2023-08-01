@@ -7,7 +7,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
   test "connects and joins control topic" do
     socket_pid =
-      start_supervised!({AbsintheWs, {self(), uri: "ws://localhost", test_mode?: true}})
+      start_supervised!(
+        {AbsintheWs, parent: self(), config: [uri: "ws://localhost", test_mode?: true]}
+      )
 
     connect_and_assert_join socket_pid, @control_topic, %{}, :ok
   end
@@ -120,7 +122,12 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
     client_opts = Keyword.put_new(opts, :test_mode?, true)
-    client_pid = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), client_opts}})
+
+    client_pid =
+      start_supervised!(
+        {AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: client_opts}
+      )
+
     connect_and_assert_join client_pid, @control_topic, %{}, :ok
     client_pid
   end

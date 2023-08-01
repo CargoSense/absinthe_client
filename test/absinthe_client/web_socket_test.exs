@@ -35,7 +35,8 @@ defmodule AbsintheClient.WebSocketTest do
     }
     """
 
-    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
+    client =
+      start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
     ref = AbsintheClient.WebSocket.push(client, {query, %{"repository" => "ABSINTHE"}})
 
@@ -47,7 +48,8 @@ defmodule AbsintheClient.WebSocketTest do
   end
 
   test "push/2 replies with errors for invalid or unknown operations", %{socket_url: uri} do
-    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
+    client =
+      start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
     ref = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
 
