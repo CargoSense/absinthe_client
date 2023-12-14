@@ -237,7 +237,7 @@ defmodule AbsintheClient do
 
       iex> req =
       ...>   Req.new(base_url: "http://localhost:4002/", auth: {:bearer, "invalid-token"})
-      ...>   |> AbsintheClient.attach(retry: :never)
+      ...>   |> AbsintheClient.attach(retry: false)
       iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
       iex> res = Req.request!(req,
       ...>   web_socket: ws,
