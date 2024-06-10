@@ -45,7 +45,7 @@ defmodule Absinthe.Socket.MixProject do
   defp deps do
     [
       {:castore, ">= 0.0.0"},
-      {:req, "~> 0.4.0"},
+      {:req, ">= 0.4.0"},
       {:slipstream, "~> 1.0"},
       # Dev/Test dependencies
       {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false},
