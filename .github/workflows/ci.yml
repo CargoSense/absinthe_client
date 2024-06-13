@@ -19,6 +19,9 @@ jobs:
           - pair:
               elixir: "1.13"
               otp: 25
+          - pair:
+              elixir: "1.16"
+              otp: 26
             lint: lint
             coverage: coverage
     steps:
