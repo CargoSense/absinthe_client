@@ -160,13 +160,15 @@ defmodule AbsintheClient.WebSocket do
     req = update_in(req.url.scheme, &String.replace(&1, "http", "ws"))
     req = put_connect_params(req)
     mint_options = Map.get(req.options, :connect_options, [])
+    transport_opts = Keyword.get(mint_options, :transport_opts, [])
+    transport_opts = Keyword.put_new(transport_opts, :timeout, 30_000)
 
     config_options = [
       uri: req.url,
       headers: req.headers,
       mint_opts: [
         protocols: [:http1],
-        transport_opts: [timeout: mint_options[:timeout] || 30_000]
+        transport_opts: transport_opts
       ]
     ]
 
