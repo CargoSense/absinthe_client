@@ -132,19 +132,21 @@ defmodule AbsintheClient.WebSocket do
 
   Using client certificates for mTLS:
 
-      iex> req = Req.new(base_url: "https://secure-api.example.com") |> AbsintheClient.attach()
-      iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(
-      ...>   connect_options: [
-      ...>     transport_opts: [
-      ...>       verify: :verify_peer,
-      ...>       cacertfile: "/path/to/ca.pem",
-      ...>       certfile: "/path/to/client-cert.pem",
-      ...>       keyfile: "/path/to/client-key.pem"
-      ...>     ]
-      ...>   ]
-      ...> )
-      iex> ws |> GenServer.whereis() |> Process.alive?()
-      true
+      req = Req.new(base_url: "https://example.com") |> AbsintheClient.attach()
+
+      {:ok, ws} = req |> AbsintheClient.WebSocket.connect(
+        connect_options: [
+          transport_opts: [
+            verify: :verify_peer,
+            cacertfile: "/path/to/ca.pem",
+            certfile: "/path/to/client-cert.pem",
+            keyfile: "/path/to/client-key.pem"
+          ]
+        ]
+      )
+
+      ws |> GenServer.whereis() |> Process.alive?()
+      # ==> true
   """
   @spec connect(request_or_options :: Request.t() | keyword) ::
           {:ok, web_socket()} | {:error, Exception.t()}
