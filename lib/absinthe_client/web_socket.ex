@@ -79,6 +79,20 @@ defmodule AbsintheClient.WebSocket do
         * `:timeout` - socket connect timeout in milliseconds,
           defaults to `30_000`.
 
+        * `:transport_opts` - keyword list of options passed to the
+          underlying transport layer (SSL/TCP). Common options include:
+
+            * `:verify` - `:verify_peer` or `:verify_none` for SSL verification
+            * `:cacertfile` - path to CA certificate file
+            * `:certfile` - path to client certificate for mTLS
+            * `:keyfile` - path to client private key for mTLS
+            * `:versions` - list of allowed TLS versions (e.g., `[:"tlsv1.2", :"tlsv1.3"]`)
+            * `:nodelay` - boolean to disable Nagle's algorithm for lower latency
+            * `:timeout` - connection timeout (defaults to `30_000` if not specified)
+
+          See the [Erlang :ssl module documentation](https://www.erlang.org/doc/man/ssl.html)
+          for a complete list of available options.
+
     * `:connect_params` - Optional. Custom params to be sent when the
       WebSocket connects. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
@@ -104,6 +118,31 @@ defmodule AbsintheClient.WebSocket do
   From keyword options:
 
       iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:4002/socket/websocket")
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
+
+  Disabling SSL verification for local development:
+
+      iex> req = Req.new(base_url: "https://localhost:4002") |> AbsintheClient.attach()
+      iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(
+      ...>   connect_options: [transport_opts: [verify: :verify_none]]
+      ...> )
+      iex> ws |> GenServer.whereis() |> Process.alive?()
+      true
+
+  Using client certificates for mTLS:
+
+      iex> req = Req.new(base_url: "https://secure-api.example.com") |> AbsintheClient.attach()
+      iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(
+      ...>   connect_options: [
+      ...>     transport_opts: [
+      ...>       verify: :verify_peer,
+      ...>       cacertfile: "/path/to/ca.pem",
+      ...>       certfile: "/path/to/client-cert.pem",
+      ...>       keyfile: "/path/to/client-key.pem"
+      ...>     ]
+      ...>   ]
+      ...> )
       iex> ws |> GenServer.whereis() |> Process.alive?()
       true
   """
@@ -160,13 +199,15 @@ defmodule AbsintheClient.WebSocket do
     req = update_in(req.url.scheme, &String.replace(&1, "http", "ws"))
     req = put_connect_params(req)
     mint_options = Map.get(req.options, :connect_options, [])
+    transport_opts = Keyword.get(mint_options, :transport_opts, [])
+    transport_opts = Keyword.put_new(transport_opts, :timeout, 30_000)
 
     config_options = [
       uri: req.url,
       headers: req.headers,
       mint_opts: [
         protocols: [:http1],
-        transport_opts: [timeout: mint_options[:timeout] || 30_000]
+        transport_opts: transport_opts
       ]
     ]
 
