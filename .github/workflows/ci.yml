@@ -1,60 +1,62 @@
 name: CI
+
 on:
-  pull_request:
   push:
-    branches:
-      - main
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  MIX_ENV: test
+
 jobs:
   test:
-    runs-on: ubuntu-20.04
-    env:
-      MIX_ENV: test
+    name: Elixir ${{ matrix.pair.elixir }} OTP ${{ matrix.pair.otp }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - pair:
               elixir: "1.15"
-              otp: 25
+              otp: "25.0"
           - pair:
-              elixir: "1.16"
-              otp: 26
+              elixir: "1.18"
+              otp: "27.0"
             lint: lint
-            coverage: coverage
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v6
 
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: ${{matrix.pair.otp}}
-          elixir-version: ${{matrix.pair.elixir}}
+          otp-version: ${{ matrix.pair.otp }}
+          elixir-version: ${{ matrix.pair.elixir }}
+          version-type: strict
 
-      - uses: actions/cache@v2
-        id: cache-deps
+      - uses: actions/cache@v5
         with:
           path: deps
-          key: mix-${{ runner.os }}-${{matrix.pair.elixir}}-${{matrix.pair.otp}}-${{ hashFiles('**/mix.lock') }}
+          key: mix-deps-${{ hashFiles('**/mix.lock') }}
 
-      - run: mix do deps.get, deps.compile
-        if: steps.cache-deps.outputs.cache-hit != 'true'
+      - run: mix deps.get --check-locked
 
       - run: mix format --check-formatted
         if: ${{ matrix.lint }}
 
       - run: mix deps.unlock --check-unused
         if: ${{ matrix.lint }}
-
+      - run: mix deps.compile
       - run: mix compile --warnings-as-errors
         if: ${{ matrix.lint }}
 
       - run: mix test
-        if: ${{!matrix.coverage}}
+        if: ${{ ! matrix.lint }}
 
-      - run: mix test --cover
-        if: ${{matrix.coverage}}
+      - run: mix test --cover --warnings-as-errors
+        if: ${{ matrix.lint }}
 
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: cover
-        if: ${{matrix.coverage}}
+        if: ${{ matrix.lint }}
