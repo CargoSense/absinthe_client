@@ -70,7 +70,7 @@ defmodule AbsintheClient.WebSocket do
       will be prepended to this path. The default value is
       `"/socket/websocket"`.
 
-    * `:headers` - list of headers to send on the initial
+    * `:headers` - headers to send on the initial
       HTTP request. Defaults to `[]`.
 
     * `:connect_options` - list of options given to
@@ -206,7 +206,7 @@ defmodule AbsintheClient.WebSocket do
 
     config_options = [
       uri: req.url,
-      headers: req.headers,
+      headers: Req.get_headers_list(req),
       mint_opts: [
         protocols: [:http1],
         transport_opts: transport_opts
