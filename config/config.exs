@@ -5,5 +5,3 @@ import Config
 config :logger, :level, :warning
 
 config :phoenix, :json_library, Jason
-
-config :req, legacy_headers_as_lists: true

@@ -117,16 +117,16 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   defp reply(%Push{} = push, push_ref, result),
     do: reply(%Reply{event: push.event, ref: push.ref, push_ref: push_ref}, result)
 
-  defp reply(reply, :ok), do: %Reply{reply | status: :ok, payload: nil}
-  defp reply(reply, :error), do: %Reply{reply | status: :error, payload: nil}
+  defp reply(%Reply{} = reply, :ok), do: %{reply | status: :ok, payload: nil}
+  defp reply(%Reply{} = reply, :error), do: %{reply | status: :error, payload: nil}
 
-  defp reply(reply, {:ok, payload}),
-    do: %Reply{reply | status: :ok, payload: payload(reply, payload)}
+  defp reply(%Reply{} = reply, {:ok, payload}),
+    do: %{reply | status: :ok, payload: payload(reply, payload)}
 
-  defp reply(reply, {:error, payload}),
-    do: %Reply{reply | status: :error, payload: error_payload(reply, payload)}
+  defp reply(%Reply{} = reply, {:error, payload}),
+    do: %{reply | status: :error, payload: error_payload(reply, payload)}
 
-  defp payload(reply, %{"subscriptionId" => subscription_id}) do
+  defp payload(%Reply{} = reply, %{"subscriptionId" => subscription_id}) do
     %AbsintheClient.Subscription{
       socket: self(),
       ref: reply.ref,
