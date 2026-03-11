@@ -16,11 +16,6 @@ defmodule Absinthe.Socket.MixProject do
       aliases: [
         "test.all": ["test --include integration"]
       ],
-      preferred_cli_env: [
-        "test.all": :test,
-        docs: :docs,
-        "hex.publish": :docs
-      ],
       test_coverage: [summary: [threshold: 80]]
     ]
   end
@@ -30,6 +25,10 @@ defmodule Absinthe.Socket.MixProject do
       mod: {AbsintheClient.Application, []},
       extra_applications: [:logger]
     ]
+  end
+
+  def cli do
+    [preferred_envs: ["test.all": :test, docs: :docs, "hex.publish": :docs]]
   end
 
   defp package do
