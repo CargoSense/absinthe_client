@@ -10,34 +10,38 @@ defmodule AbsintheClient.MixProject do
       version: @version,
       elixir: "~> 1.13",
       start_permanent: Mix.env() == :prod,
-      deps: deps(),
+      description: "A GraphQL client designed for Elixir Absinthe.",
       package: package(),
+      aliases: aliases(),
+      deps: deps(),
+      name: "AbsintheClient",
+      source_url: @source_url,
+      homepage_url: @source_url,
       docs: docs(),
-      aliases: [
-        "test.all": ["test --include integration"]
-      ],
       test_coverage: [summary: [threshold: 80]]
     ]
   end
 
   def application do
     [
-      mod: {AbsintheClient.Application, []},
-      extra_applications: [:logger]
+      extra_applications: [:logger],
+      mod: {AbsintheClient.Application, []}
     ]
   end
 
   def cli do
-    [preferred_envs: ["test.all": :test, docs: :docs, "hex.publish": :docs]]
+    [
+      preferred_envs: [
+        docs: :docs,
+        "hex.publish": :docs,
+        "test.all": :test
+      ]
+    ]
   end
 
-  defp package do
+  defp aliases do
     [
-      description: "AbsintheClient is a GraphQL client designed for Elixir Absinthe.",
-      licenses: ["MIT"],
-      links: %{
-        "GitHub" => @source_url
-      }
+      "test.all": ["test --include integration"]
     ]
   end
 
@@ -46,41 +50,47 @@ defmodule AbsintheClient.MixProject do
       {:castore, ">= 0.0.0"},
       {:req, "~> 0.4"},
       {:slipstream, "~> 1.0"},
-      # Dev/Test dependencies
+      {:absinthe_phoenix, "~> 2.0.0", only: [:dev, :docs, :test]},
       {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false},
-      {:plug_cowboy, "~> 2.0", only: [:dev, :test]},
-      {:absinthe_phoenix, "~> 2.0.0", only: [:dev, :docs, :test]}
+      {:plug_cowboy, "~> 2.0", only: [:dev, :test]}
     ]
   end
 
   defp docs do
     [
-      source_url: @source_url,
+      main: "readme",
+      extras: [
+        "README.md",
+        "CHANGELOG.md"
+      ],
+      formatters: ["html"],
       source_ref: "v#{@version}",
+      source_url: @source_url,
       deps: [],
       language: "en",
-      formatters: ["html"],
-      main: "readme",
       groups_for_functions: [
         "Request steps": &(&1[:step] == :request),
         "Response steps": &(&1[:step] == :response),
         "Error steps": &(&1[:step] == :error)
       ],
       groups_for_modules: [
-        # Ungrouped modules
-        # AbsintheClient
-        # AbsintheClient.WebSocket
-
         Structures: [
           AbsintheClient.Subscription,
           AbsintheClient.WebSocket.Message,
           AbsintheClient.WebSocket.Reply
         ]
-      ],
-      extras: [
-        "README.md",
-        "CHANGELOG.md"
       ]
+    ]
+  end
+
+  defp package do
+    [
+      description: "A GraphQL client designed for Elixir Absinthe.",
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/releases"
+      }
     ]
   end
 end
