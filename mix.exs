@@ -1,4 +1,4 @@
-defmodule Absinthe.Socket.MixProject do
+defmodule AbsintheClient.MixProject do
   use Mix.Project
 
   @version "0.1.1"
