@@ -1,0 +1,17 @@
+{
+  "features": {
+    "ghcr.io/CargoSense/devcontainer-features/elixir-project:": {
+      "version": "1.1.0",
+      "resolved": "ghcr.io/cargosense/devcontainer-features/elixir-project@sha256:25d62de3896a9e571e9d9167f7a8bd83be5846c6da1189978100c42cf337bf13",
+      "integrity": "sha256:25d62de3896a9e571e9d9167f7a8bd83be5846c6da1189978100c42cf337bf13",
+      "dependsOn": [
+        "ghcr.io/devcontainers/features/common-utils:2"
+      ]
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "version": "2.7.0",
+      "resolved": "ghcr.io/devcontainers/features/common-utils@sha256:3f63bbee7418dc940d9e5e7ab93ef3049acfe4dba3085b17ee45fe307fdba4e5",
+      "integrity": "sha256:3f63bbee7418dc940d9e5e7ab93ef3049acfe4dba3085b17ee45fe307fdba4e5"
+    }
+  }
+}

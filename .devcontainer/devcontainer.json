@@ -1,0 +1,17 @@
+{
+  "name": "absinthe_client",
+  "image": "docker.io/library/elixir:1.19.6",
+  "features": {
+    "ghcr.io/CargoSense/devcontainer-features/elixir-project:": {}
+  },
+  "runArgs": ["--name", "absinthe_client"],
+  // "updateContentCommand": "mix deps.get",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "jasonnutter.vscode-codeowners"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}
