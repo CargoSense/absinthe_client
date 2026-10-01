@@ -2,7 +2,7 @@ defmodule AbsintheClient.MixProject do
   use Mix.Project
 
   @version "0.1.1"
-  @source_url "https://github.com/CargoSense/absinthe_socket"
+  @source_url "https://github.com/CargoSense/absinthe_client"
 
   def project do
     [
