@@ -51,6 +51,7 @@ defmodule AbsintheClient.MixProject do
       {:req, "~> 0.4"},
       {:slipstream, "~> 1.0"},
       {:absinthe_phoenix, "~> 2.0.0", only: [:dev, :docs, :test]},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, ">= 0.0.0", only: [:docs], runtime: false},
       {:plug_cowboy, "~> 2.0", only: [:dev, :test]}
     ]
