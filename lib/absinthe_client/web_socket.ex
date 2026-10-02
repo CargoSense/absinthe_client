@@ -50,12 +50,12 @@ defmodule AbsintheClient.WebSocket do
 
   """
   alias AbsintheClient.Utils
-  alias AbsintheClient.WebSocket.{Push, Reply}
+  alias AbsintheClient.WebSocket.{AbsintheWs, Config, Push, Reply}
   alias Req.Request
 
   @type graphql :: String.t() | {String.t(), nil | map()}
 
-  @type web_socket :: GenServer.server()
+  @type web_socket :: pid()
 
   @default_receive_timeout 15_000
 
@@ -63,7 +63,13 @@ defmodule AbsintheClient.WebSocket do
 
   @doc """
   Dynamically starts (or re-uses already started) AbsintheWs
-  process with the given options:
+  process with the given options.
+
+  The socket is identified by the parent process, the URL, and the
+  transport options. Credentials are not part of the identity, so
+  connecting again with new credentials re-uses the running socket.
+
+  Options:
 
     * `:url` - URL where to make the WebSocket connection. When
       provided as an option to `connect/2` the request's `base_url`
@@ -112,13 +118,13 @@ defmodule AbsintheClient.WebSocket do
 
       iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect()
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
 
   From keyword options:
 
       iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:4002/socket/websocket")
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
 
   Disabling SSL verification for local development:
@@ -127,7 +133,7 @@ defmodule AbsintheClient.WebSocket do
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(
       ...>   connect_options: [transport_opts: [verify: :verify_none]]
       ...> )
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
 
   Using client certificates for mTLS:
@@ -145,7 +151,7 @@ defmodule AbsintheClient.WebSocket do
         ]
       )
 
-      ws |> GenServer.whereis() |> Process.alive?()
+      Process.alive?(ws)
       # ==> true
   """
   @spec connect(request_or_options :: Request.t() | keyword) ::
@@ -171,94 +177,47 @@ defmodule AbsintheClient.WebSocket do
 
       iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect()
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
 
   With a custom URL path:
 
       iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
       iex> {:ok, ws} = req |> AbsintheClient.WebSocket.connect(url: "/socket/websocket")
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
   """
   @spec connect(Request.t(), keyword) :: {:ok, web_socket()} | {:error, Exception.t()}
   def connect(%Request{} = request, options) when is_list(options) do
-    {parent, options} = Keyword.split(options, [:parent])
+    request =
+      request
+      |> Request.register_options([:parent])
+      |> Req.merge([url: @default_socket_url] ++ options)
 
-    %{request | adapter: &run_ws_options/1}
-    |> Request.register_options([:parent])
-    |> Request.merge_options(parent)
-    |> Req.request([url: @default_socket_url] ++ options)
-    |> case do
-      {:ok, %{body: socket}} -> {:ok, socket}
-      {:error, _} = error -> error
+    parent = Map.get(request.options, :parent, self())
+
+    with {:ok, config} <- Config.build(request) do
+      start_socket(parent, request, config)
     end
   end
 
-  defp run_ws_options(%Request{} = req) do
-    parent = Map.get(req.options, :parent, self())
+  defp start_socket(parent, %Request{} = _request, %Config{} = config) do
+    name = {:via, Registry, {AbsintheClient.SocketRegistry, {parent, config.key}}}
 
-    req = update_in(req.url.scheme, &String.replace(&1, "http", "ws"))
-    req = put_connect_params(req)
-    mint_options = Map.get(req.options, :connect_options, [])
-    transport_opts = Keyword.get(mint_options, :transport_opts, [])
-    transport_opts = Keyword.put_new(transport_opts, :timeout, 30_000)
+    child_spec = {AbsintheWs, parent: parent, config: config.slipstream, name: name}
 
-    config_options = [
-      uri: req.url,
-      headers: Req.get_headers_list(req),
-      mint_opts: [
-        protocols: [:http1],
-        transport_opts: transport_opts
-      ]
-    ]
+    case DynamicSupervisor.start_child(AbsintheClient.SocketSupervisor, child_spec) do
+      {:ok, pid} ->
+        {:ok, pid}
 
-    case Slipstream.Configuration.validate(config_options) do
-      {:ok, _config} ->
-        name = custom_socket_name([parent: parent] ++ config_options)
+      {:error, {:already_started, pid}} ->
+        {:ok, pid}
 
-        case DynamicSupervisor.start_child(
-               AbsintheClient.SocketSupervisor,
-               {AbsintheClient.WebSocket.AbsintheWs, {parent, config_options, [name: name]}}
-             ) do
-          {:ok, _} ->
-            {req, Req.Response.new(body: name)}
+      {:error, %{__exception__: true} = exception} ->
+        {:error, exception}
 
-          {:error, {:already_started, _}} ->
-            {req, Req.Response.new(body: name)}
-        end
-
-      {:error, _} = error ->
-        {req, error}
-    end
-  end
-
-  defp put_connect_params(%Request{} = req) do
-    case Map.fetch(req.options, :connect_params) do
-      {:ok, params} ->
-        put_connect_params(req, params)
-
-      :error ->
-        maybe_put_auth_params(req)
-    end
-  end
-
-  defp put_connect_params(%Request{} = req, params) do
-    encoded = URI.encode_query(params)
-
-    update_in(req.url.query, fn
-      nil -> encoded
-      query -> query <> "&" <> encoded
-    end)
-  end
-
-  defp maybe_put_auth_params(%Request{} = req) do
-    case Map.fetch(req.options, :auth) do
-      {:ok, {:bearer, token}} ->
-        put_connect_params(req, %{"Authorization" => "Bearer #{token}"})
-
-      _ ->
-        req
+      {:error, reason} ->
+        {:error, %RuntimeError{message: "failed to start WebSocket, got: #{inspect(reason)}"}}
     end
   end
 
@@ -270,13 +229,13 @@ defmodule AbsintheClient.WebSocket do
   From a request:
 
       iex> ws = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.WebSocket.connect!()
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
 
   From keyword options:
 
       iex> ws = AbsintheClient.WebSocket.connect!(url: "ws://localhost:4002/socket/websocket")
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
   """
   @spec connect!(request_or_options :: Request.t() | keyword) :: web_socket()
@@ -295,7 +254,7 @@ defmodule AbsintheClient.WebSocket do
       iex> ws =
       ...>  Req.new(base_url: "http://localhost:4002")
       ...>  |> AbsintheClient.WebSocket.connect!(url: "/socket/websocket")
-      iex> ws |> GenServer.whereis() |> Process.alive?()
+      iex> Process.alive?(ws)
       true
   """
   @spec connect!(Request.t(), keyword) :: web_socket()
@@ -304,16 +263,6 @@ defmodule AbsintheClient.WebSocket do
       {:ok, req} -> req
       {:error, exception} -> raise exception
     end
-  end
-
-  defp custom_socket_name(options) do
-    name =
-      options
-      |> :erlang.term_to_binary()
-      |> :erlang.md5()
-      |> Base.url_encode64(padding: false)
-
-    Module.concat(AbsintheClient.SocketSupervisor, "Socket_#{name}")
   end
 
   @doc """

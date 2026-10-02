@@ -6,31 +6,39 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @control_topic "__absinthe__:control"
 
   @doc """
-  Starts a Absinthe client process.
+  Starts a Absinthe client process with the given options:
+
+    * `:parent` - Required. The pid of the process that owns the socket.
+
+    * `:config` - Required. The `Slipstream` connection options.
+
+    * `:name` - Optional. The name of the socket process.
 
   ## Examples
 
-      AbsintheClient.WebSocket.AbsintheWs.start_link({self(), url: "wss://example.com/subscriptions/websocket"})
+      AbsintheClient.WebSocket.AbsintheWs.start_link(
+        parent: self(),
+        config: [uri: "wss://example.com/subscriptions/websocket"]
+      )
 
   """
-  @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
-  @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
-          GenServer.on_start()
-  def start_link(config) when is_list(config), do: start_link({self(), config, []})
-  def start_link({parent, config}) when is_pid(parent), do: start_link({parent, config, []})
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(options) when is_list(options) do
+    config = Keyword.fetch!(options, :config)
 
-  def start_link({parent, config, options}) do
     with {:ok, _config} <- Slipstream.Configuration.validate(config) do
-      Slipstream.start_link(__MODULE__, {parent, config}, options)
+      Slipstream.start_link(__MODULE__, options, Keyword.take(options, [:name]))
     end
   end
 
   @impl Slipstream
-  def init({parent, config}) do
+  def init(options) do
+    parent = Keyword.fetch!(options, :parent)
     parent_ref = Process.monitor(parent)
 
     socket =
-      config
+      options
+      |> Keyword.fetch!(:config)
       |> Slipstream.connect!()
       |> Slipstream.Socket.assign(
         parent: parent,

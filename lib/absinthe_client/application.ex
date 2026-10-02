@@ -6,6 +6,7 @@ defmodule AbsintheClient.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {Registry, keys: :unique, name: AbsintheClient.SocketRegistry},
       {DynamicSupervisor, strategy: :one_for_one, name: AbsintheClient.SocketSupervisor}
     ]
 
