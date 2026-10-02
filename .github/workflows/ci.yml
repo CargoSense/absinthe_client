@@ -24,7 +24,7 @@ jobs:
       - run: mix credo
         if: ${{ !cancelled() }}
   test:
-    name: Elixir ${{ matrix.pair.elixir }} OTP ${{ matrix.pair.otp }}
+    name: Elixir ${{ matrix.elixir }} OTP ${{ matrix.otp }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
