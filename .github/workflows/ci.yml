@@ -10,7 +10,7 @@ env:
   MIX_ENV: test
 
 jobs:
- lint:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
