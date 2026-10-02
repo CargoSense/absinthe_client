@@ -49,6 +49,7 @@ defmodule AbsintheClientTest.DB do
              "no repo named '#{inspect(name)}' was found"
            end),
          {:ok, creator} <- fetch(:creators, name) do
+      # credo:disable-for-next-line Credo.Check.Design.TagTODO
       # todo: fetch comments
       {:ok, %{repo | creator: creator}}
     end

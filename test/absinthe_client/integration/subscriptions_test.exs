@@ -12,6 +12,7 @@ defmodule AbsintheClient.Integration.SubscriptionsTest do
       {:ok, %{parent: parent, client: client, socket: socket_name}}
     end
 
+    # credo:disable-for-next-line Credo.Check.Design.TagTODO
     # todo: remove handle_info for reply when clear_subscriptions/1 can be awaited on
     def handle_info(%AbsintheClient.WebSocket.Reply{} = reply, state) do
       %{payload: %AbsintheClient.Subscription{} = subscription} = reply
