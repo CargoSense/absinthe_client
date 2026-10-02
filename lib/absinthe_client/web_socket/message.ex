@@ -62,3 +62,25 @@ defmodule AbsintheClient.WebSocket.Push do
     struct!(__MODULE__, options)
   end
 end
+
+defmodule AbsintheClient.WebSocket.Closed do
+  @moduledoc """
+  Message sent when the WebSocket stops after the server repeatedly
+  rejects the connection.
+
+  The socket sends one message per active subscription to the process
+  that created it, and one message with a `nil` ref to the parent
+  process.
+
+  The message format requires the following keys:
+
+    * `:socket` - The pid of the WebSocket process.
+
+    * `:ref` - The subscription ref, or `nil` for the parent notification.
+
+    * `:reason` - The reason of the final disconnect.
+
+  """
+  @type t :: %__MODULE__{}
+  defstruct [:socket, :ref, :reason]
+end

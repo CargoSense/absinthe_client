@@ -3,8 +3,14 @@ defmodule AbsintheClient.WebSocket.Config do
   @moduledoc false
   alias Req.Request
 
-  @type t :: %__MODULE__{key: term(), slipstream: keyword()}
-  defstruct [:key, :slipstream]
+  @type t :: %__MODULE__{
+          key: term(),
+          max_rejections: pos_integer(),
+          slipstream: keyword()
+        }
+  defstruct [:key, :max_rejections, :slipstream]
+
+  @default_max_rejections 5
 
   @doc """
   Runs the request pipeline and returns the WebSocket configuration.
@@ -46,7 +52,11 @@ defmodule AbsintheClient.WebSocket.Config do
 
     case Slipstream.Configuration.validate(slipstream) do
       {:ok, _} ->
-        config = %__MODULE__{key: key, slipstream: slipstream}
+        config = %__MODULE__{
+          key: key,
+          max_rejections: Map.get(req.options, :max_rejections, @default_max_rejections),
+          slipstream: slipstream
+        }
 
         {req, Req.Response.new(body: config)}
 

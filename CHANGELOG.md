@@ -17,6 +17,9 @@
   tokens on reconnect (#12).
 - Connecting again from the same parent with new credentials re-uses the socket
   and updates the request used for the next reconnect.
+- Add `:max_rejections` option. After that many consecutive HTTP 4xx rejections
+  the socket replies with an error to pending operations, sends
+  `AbsintheClient.WebSocket.Closed` to the parent and subscribers, and stops.
 
 ## v0.1.1 (2024-06-13)
 
