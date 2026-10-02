@@ -11,6 +11,7 @@ A GraphQL client designed for Elixir [Absinthe][absinthe].
 - Performs `query` and `mutation` operations via JSON POST requests.
 - Performs `subscription` operations over WebSockets ([Absinthe Phoenix][absinthe_phoenix]).
 - Automatically re-establishes subscriptions on socket disconnect/reconnect.
+- Refreshes credentials before every WebSocket connection attempt.
 - Supports virtually all [`Req.request/1`][request] options, notably:
   - Bearer authentication (via the [`auth`][req_auth] step).
   - Retries on errors (via the [`retry`][req_retry] step).
@@ -83,6 +84,18 @@ req = Req.new(base_url: base_url, auth: auth) |> AbsintheClient.attach()
 
 # ?Authentication=Bearer+token will be sent on the connect request.
 ws = AbsintheClient.WebSocket.connect(req, url: "/socket/websocket")
+```
+
+Tokens expire. Pass a zero-arity function to `:auth` (or
+`:connect_params`) and the socket calls it before every connection
+attempt, so a reconnect always sends the current token:
+
+```elixir
+base_url = "https://my-absinthe-server"
+auth = fn -> {:bearer, MyApp.Token.current!()} end
+req = Req.new(base_url: base_url, auth: auth) |> AbsintheClient.attach()
+
+ws = AbsintheClient.WebSocket.connect!(req, url: "/socket/websocket")
 ```
 
 If you use your client to authenticate then you can set `:auth` by merging

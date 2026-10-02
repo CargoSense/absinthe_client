@@ -101,6 +101,9 @@ defmodule AbsintheClient.WebSocketTest do
 
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "a"})
     assert {:ok, ^ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "b"})
+
+    assert %{assigns: %{request: %Req.Request{options: %{auth: {:bearer, "b"}}}}} =
+             :sys.get_state(ws)
   end
 
   test "connect/2 starts a socket per URL" do
@@ -110,6 +113,28 @@ defmodule AbsintheClient.WebSocketTest do
     assert {:ok, auth_ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
 
     assert ws != auth_ws
+  end
+
+  test "re-runs the auth function before each connection attempt" do
+    calls = start_supervised!({Agent, fn -> 0 end})
+
+    token = fn ->
+      case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+        0 -> "invalid-token"
+        _ -> "valid-token"
+      end
+    end
+
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: fn -> {:bearer, token.()} end)
+      |> AbsintheClient.attach()
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+
+    assert_receive %AbsintheClient.WebSocket.Reply{ref: ^ref, status: :ok}, 2_000
+    assert Agent.get(calls, & &1) >= 2
   end
 
   test "monitors parent and exits on down", %{socket_url: socket_url} do

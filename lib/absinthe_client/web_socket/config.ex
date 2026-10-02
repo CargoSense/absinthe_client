@@ -8,6 +8,9 @@ defmodule AbsintheClient.WebSocket.Config do
 
   @doc """
   Runs the request pipeline and returns the WebSocket configuration.
+
+  The request steps run on each call, so function-valued options such
+  as `auth: fn -> ... end` produce fresh credentials.
   """
   @spec build(Request.t()) :: {:ok, t()} | {:error, Exception.t()}
   def build(%Request{} = request) do
@@ -54,6 +57,9 @@ defmodule AbsintheClient.WebSocket.Config do
 
   defp put_connect_params(%Request{} = req) do
     case Map.fetch(req.options, :connect_params) do
+      {:ok, fun} when is_function(fun, 0) ->
+        put_connect_params(req, fun.())
+
       {:ok, params} ->
         put_connect_params(req, params)
 
@@ -71,10 +77,11 @@ defmodule AbsintheClient.WebSocket.Config do
     end)
   end
 
+  # The auth step has already run, so the header reflects any auth form Req supports.
   defp maybe_put_auth_params(%Request{} = req) do
-    case Map.fetch(req.options, :auth) do
-      {:ok, {:bearer, token}} ->
-        put_connect_params(req, %{"Authorization" => "Bearer #{token}"})
+    case Request.get_header(req, "authorization") do
+      ["Bearer " <> _ = bearer | _] ->
+        put_connect_params(req, %{"Authorization" => bearer})
 
       _ ->
         req

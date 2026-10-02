@@ -10,6 +10,14 @@
   no atoms are created per connection.
 - `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
 
+### Enhancements
+
+- Re-run the request steps before every WebSocket connection attempt, so
+  `auth: fn -> ... end` and `connect_params: fn -> ... end` refresh expired
+  tokens on reconnect (#12).
+- Connecting again from the same parent with new credentials re-uses the socket
+  and updates the request used for the next reconnect.
+
 ## v0.2.0 (2026-10-09)
 
 - Require Req v0.7 and Elixir v1.15 or later
