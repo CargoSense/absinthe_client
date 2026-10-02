@@ -120,6 +120,15 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_payload}
   end
 
+  test "adopts an updated request" do
+    client = start_client!()
+    request = Req.new(url: "ws://localhost")
+
+    send(client, {:update_request, request})
+
+    assert %{assigns: %{request: ^request}} = :sys.get_state(client)
+  end
+
   defp start_client!(opts \\ [uri: "wss://localhost"]) do
     client_opts = Keyword.put_new(opts, :test_mode?, true)
     client_pid = start_supervised!({AbsintheWs, parent: self(), config: client_opts})

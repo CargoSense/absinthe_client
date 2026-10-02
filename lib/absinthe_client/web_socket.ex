@@ -67,7 +67,8 @@ defmodule AbsintheClient.WebSocket do
 
   The socket is identified by the parent process, the URL, and the
   transport options. Credentials are not part of the identity, so
-  connecting again with new credentials re-uses the running socket.
+  connecting again with new credentials re-uses the running socket
+  and the socket adopts the new request on its next reconnect.
 
   Options:
 
@@ -100,7 +101,8 @@ defmodule AbsintheClient.WebSocket do
           for a complete list of available options.
 
     * `:connect_params` - Optional. Custom params to be sent when the
-      WebSocket connects. Defaults to sending the bearer Authorization
+      WebSocket connects, as a map or a zero-arity function that
+      returns a map. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
 
     * `:parent` - pid of the process starting the connection.
@@ -111,6 +113,25 @@ defmodule AbsintheClient.WebSocket do
   the WebSocket process has started. The process must then connect
   to the GraphQL server and join the relevant topic(s) before it can
   send and receive messages.
+
+  ## Token refresh
+
+  The socket re-runs the request steps before every connection
+  attempt, so a zero-arity function given to `:auth` or
+  `:connect_params` is called each time the socket connects or
+  reconnects:
+
+      req =
+        Req.new(
+          base_url: "https://example.com",
+          auth: fn -> {:bearer, MyApp.Token.fetch!()} end
+        )
+        |> AbsintheClient.attach()
+
+      {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+
+  The function runs inside the socket process, so it must read the
+  token from a shared place such as an `Agent` or ETS table.
 
   ## Examples
 
@@ -201,16 +222,18 @@ defmodule AbsintheClient.WebSocket do
     end
   end
 
-  defp start_socket(parent, %Request{} = _request, %Config{} = config) do
+  defp start_socket(parent, %Request{} = request, %Config{} = config) do
     name = {:via, Registry, {AbsintheClient.SocketRegistry, {parent, config.key}}}
 
-    child_spec = {AbsintheWs, parent: parent, config: config.slipstream, name: name}
+    child_spec =
+      {AbsintheWs, parent: parent, config: config.slipstream, request: request, name: name}
 
     case DynamicSupervisor.start_child(AbsintheClient.SocketSupervisor, child_spec) do
       {:ok, pid} ->
         {:ok, pid}
 
       {:error, {:already_started, pid}} ->
+        send(pid, {:update_request, request})
         {:ok, pid}
 
       {:error, %{__exception__: true} = exception} ->

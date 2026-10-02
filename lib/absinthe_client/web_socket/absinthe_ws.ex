@@ -1,7 +1,7 @@
 defmodule AbsintheClient.WebSocket.AbsintheWs do
   @moduledoc false
   use Slipstream, restart: :temporary
-  alias AbsintheClient.WebSocket.{Push, Reply}
+  alias AbsintheClient.WebSocket.{Config, Push, Reply}
 
   @control_topic "__absinthe__:control"
 
@@ -11,6 +11,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     * `:parent` - Required. The pid of the process that owns the socket.
 
     * `:config` - Required. The `Slipstream` connection options.
+
+    * `:request` - Optional. The `Req.Request` to re-run before each
+      connection attempt. Defaults to `nil`, which re-uses `:config`.
 
     * `:name` - Optional. The name of the socket process.
 
@@ -34,15 +37,17 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def init(options) do
     parent = Keyword.fetch!(options, :parent)
+    config = Keyword.fetch!(options, :config)
     parent_ref = Process.monitor(parent)
 
     socket =
-      options
-      |> Keyword.fetch!(:config)
+      config
       |> Slipstream.connect!()
       |> Slipstream.Socket.assign(
         parent: parent,
         parent_ref: parent_ref,
+        config: config,
+        request: Keyword.get(options, :request),
         pids: %{},
         channel_connected: false,
         active_subscriptions: %{},
@@ -60,16 +65,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   @impl Slipstream
   def handle_disconnect(_reason, socket) do
-    case reconnect(socket) do
-      {:ok, socket} ->
-        {:ok,
-         socket
-         |> assign(:channel_connected, false)
-         |> enqueue_active_subscriptions()}
-
-      {:error, reason} ->
-        {:stop, reason, socket}
-    end
+    socket
+    |> assign(:channel_connected, false)
+    |> enqueue_active_subscriptions()
+    |> schedule_reconnect()
   end
 
   @impl Slipstream
@@ -198,6 +197,23 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   end
 
   @impl Slipstream
+  def handle_info({:update_request, %Req.Request{} = request}, socket) do
+    {:noreply, assign(socket, :request, request)}
+  end
+
+  @impl Slipstream
+  def handle_info(:reconnect, socket) do
+    with {:ok, config} <- refresh_config(socket),
+         {:ok, socket} <- Slipstream.connect(socket, config) do
+      {:noreply, socket}
+    else
+      {:error, reason} ->
+        {:ok, socket} = handle_disconnect({:error, reason}, socket)
+        {:noreply, socket}
+    end
+  end
+
+  @impl Slipstream
   def handle_info({:DOWN, ref, :process, _, _}, %{assigns: %{parent_ref: ref}} = socket) do
     {:stop, :shutdown, socket}
   end
@@ -247,5 +263,23 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       end)
 
     assign(socket, active_subscriptions: %{}, pending: new_pending)
+  end
+
+  # Slipstream.reconnect/1 re-uses the old config, so the backoff is scheduled by hand.
+  defp schedule_reconnect(socket) do
+    {time, socket} = Slipstream.Socket.next_reconnect_time(socket)
+    Process.send_after(self(), :reconnect, time)
+    {:ok, socket}
+  end
+
+  defp refresh_config(%{assigns: %{request: nil, config: config}}), do: {:ok, config}
+
+  defp refresh_config(%{assigns: %{request: request}}) do
+    case Config.build(request) do
+      {:ok, %Config{slipstream: config}} -> {:ok, config}
+      {:error, exception} -> {:error, exception}
+    end
+  rescue
+    exception -> {:error, exception}
   end
 end

@@ -46,7 +46,8 @@ defmodule AbsintheClient do
       message. The default value is `false`.
 
     * `:connect_params` - Optional. Custom params to be sent when the
-      WebSocket connects. Defaults to sending the bearer Authorization
+      WebSocket connects, as a map or a zero-arity function that
+      returns a map. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
 
   If you want to set any of these options when attaching the plugin,
@@ -214,6 +215,32 @@ defmodule AbsintheClient do
       iex> req =
       ...>   Req.new(base_url: "http://localhost:4002/")
       ...>   |> AbsintheClient.attach(connect_params: %{"token" => "valid-token"})
+      iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
+      iex> res = Req.request!(req,
+      ...>   web_socket: ws,
+      ...>   async: true,
+      ...>   graphql: {
+      ...>     \"""
+      ...>     subscription ($repository: Repository!) {
+      ...>       repoCommentSubscribe(repository: $repository) {
+      ...>         id
+      ...>         commentary
+      ...>       }
+      ...>     }
+      ...>     \""",
+      ...>     %{"repository" => "ELIXIR"}
+      ...>   }
+      ...> )
+      iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
+      AbsintheClient.Subscription
+
+  Refreshing credentials via a function (called before every connection attempt):
+
+      iex> {:ok, tokens} = Agent.start_link(fn -> ["invalid-token", "valid-token"] end)
+      iex> next_token = fn -> Agent.get_and_update(tokens, fn [t | rest] -> {t, rest ++ [t]} end) end
+      iex> req =
+      ...>   Req.new(base_url: "http://localhost:4002/", auth: fn -> {:bearer, next_token.()} end)
+      ...>   |> AbsintheClient.attach()
       iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
       iex> res = Req.request!(req,
       ...>   web_socket: ws,
