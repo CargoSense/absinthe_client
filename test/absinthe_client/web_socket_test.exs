@@ -35,7 +35,8 @@ defmodule AbsintheClient.WebSocketTest do
     }
     """
 
-    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
+    client =
+      start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
     ref = AbsintheClient.WebSocket.push(client, {query, %{"repository" => "ABSINTHE"}})
 
@@ -47,7 +48,8 @@ defmodule AbsintheClient.WebSocketTest do
   end
 
   test "push/2 replies with errors for invalid or unknown operations", %{socket_url: uri} do
-    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
+    client =
+      start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
     ref = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
 
@@ -92,6 +94,22 @@ defmodule AbsintheClient.WebSocketTest do
         ]
       }
     }
+  end
+
+  test "connect/2 re-uses the socket when only credentials change" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "a"})
+    assert {:ok, ^ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "b"})
+  end
+
+  test "connect/2 starts a socket per URL" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+    assert {:ok, auth_ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    assert ws != auth_ws
   end
 
   test "monitors parent and exits on down", %{socket_url: socket_url} do
