@@ -105,6 +105,11 @@ defmodule AbsintheClient.WebSocket do
       returns a map. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
 
+    * `:max_rejections` - Optional. The number of consecutive times the
+      server may reject the connection (HTTP 4xx on upgrade) before the
+      socket stops. Defaults to `5`. Refer to the Token refresh section
+      for more information.
+
     * `:parent` - pid of the process starting the connection.
       The socket monitors this process and shuts down when
       the parent process exits. Defaults to `self()`.
@@ -132,6 +137,13 @@ defmodule AbsintheClient.WebSocket do
 
   The function runs inside the socket process, so it must read the
   token from a shared place such as an `Agent` or ETS table.
+
+  Transport failures retry with backoff until the parent process
+  exits. When the server rejects the connection with an HTTP 4xx
+  status `:max_rejections` times in a row, or the request steps raise,
+  the socket sends an `AbsintheClient.WebSocket.Closed` message to the
+  parent and to each subscriber, replies with an error to any pending
+  operation, and stops. Calling `connect/2` again starts a new socket.
 
   ## Examples
 
@@ -212,7 +224,7 @@ defmodule AbsintheClient.WebSocket do
   def connect(%Request{} = request, options) when is_list(options) do
     request =
       request
-      |> Request.register_options([:parent])
+      |> Request.register_options([:parent, :max_rejections])
       |> Req.merge([url: @default_socket_url] ++ options)
 
     parent = Map.get(request.options, :parent, self())
@@ -226,7 +238,12 @@ defmodule AbsintheClient.WebSocket do
     name = {:via, Registry, {AbsintheClient.SocketRegistry, {parent, config.key}}}
 
     child_spec =
-      {AbsintheWs, parent: parent, config: config.slipstream, request: request, name: name}
+      {AbsintheWs,
+       parent: parent,
+       config: config.slipstream,
+       request: request,
+       max_rejections: config.max_rejections,
+       name: name}
 
     case DynamicSupervisor.start_child(AbsintheClient.SocketSupervisor, child_spec) do
       {:ok, pid} ->

@@ -1,7 +1,8 @@
 defmodule AbsintheClient.WebSocket.AbsintheWs do
   @moduledoc false
   use Slipstream, restart: :temporary
-  alias AbsintheClient.WebSocket.{Config, Push, Reply}
+  require Logger
+  alias AbsintheClient.WebSocket.{Closed, Config, Push, Reply}
 
   @control_topic "__absinthe__:control"
 
@@ -14,6 +15,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
     * `:request` - Optional. The `Req.Request` to re-run before each
       connection attempt. Defaults to `nil`, which re-uses `:config`.
+
+    * `:max_rejections` - Optional. Consecutive rejected connection
+      attempts before the socket stops. Defaults to `5`.
 
     * `:name` - Optional. The name of the socket process.
 
@@ -48,6 +52,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
         parent_ref: parent_ref,
         config: config,
         request: Keyword.get(options, :request),
+        max_rejections: Keyword.get(options, :max_rejections, 5),
+        rejections: 0,
         pids: %{},
         channel_connected: false,
         active_subscriptions: %{},
@@ -60,15 +66,22 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   @impl Slipstream
   def handle_connect(socket) do
-    {:ok, join(socket, @control_topic)}
+    {:ok, socket |> assign(:rejections, 0) |> join(@control_topic)}
   end
 
   @impl Slipstream
-  def handle_disconnect(_reason, socket) do
-    socket
-    |> assign(:channel_connected, false)
-    |> enqueue_active_subscriptions()
-    |> schedule_reconnect()
+  def handle_disconnect(reason, socket) do
+    socket =
+      socket
+      |> assign(:channel_connected, false)
+      |> enqueue_active_subscriptions()
+      |> count_rejection(reason)
+
+    if socket.assigns.rejections >= socket.assigns.max_rejections do
+      close(socket, reason)
+    else
+      schedule_reconnect(socket)
+    end
   end
 
   @impl Slipstream
@@ -208,8 +221,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       {:noreply, socket}
     else
       {:error, reason} ->
-        {:ok, socket} = handle_disconnect({:error, reason}, socket)
-        {:noreply, socket}
+        case handle_disconnect({:error, reason}, socket) do
+          {:ok, socket} -> {:noreply, socket}
+          {:stop, reason, socket} -> {:stop, reason, socket}
+        end
     end
   end
 
@@ -265,6 +280,18 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     assign(socket, active_subscriptions: %{}, pending: new_pending)
   end
 
+  # Only a reachable server that refuses the connection counts toward the limit.
+  defp count_rejection(socket, {:error, {:upgrade_failure, %{status_code: status}}})
+       when status in 400..499 do
+    update(socket, :rejections, &(&1 + 1))
+  end
+
+  defp count_rejection(socket, {:error, %{__exception__: true}}) do
+    update(socket, :rejections, &(&1 + 1))
+  end
+
+  defp count_rejection(socket, _reason), do: socket
+
   # Slipstream.reconnect/1 re-uses the old config, so the backoff is scheduled by hand.
   defp schedule_reconnect(socket) do
     {time, socket} = Slipstream.Socket.next_reconnect_time(socket)
@@ -281,5 +308,35 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     end
   rescue
     exception -> {:error, exception}
+  end
+
+  defp close(socket, reason) do
+    %{parent: parent, pending: pending, inflight: inflight, rejections: rejections} =
+      socket.assigns
+
+    Logger.warning(
+      "#{inspect(__MODULE__)} closed after #{rejections} rejected connection attempts, got: #{inspect(reason)}"
+    )
+
+    pushes =
+      Enum.map(pending, &{&1, &1.pushed_counter == 0}) ++
+        Enum.map(Map.values(inflight), &{&1, &1.pushed_counter == 1})
+
+    for {%Push{pid: pid, ref: ref} = push, awaiting_reply?} <- pushes, is_pid(pid) do
+      cond do
+        awaiting_reply? and is_reference(ref) ->
+          send(pid, reply(push, nil, {:error, reason}))
+
+        push.event == "doc" and not awaiting_reply? ->
+          send(pid, %Closed{socket: self(), ref: ref, reason: reason})
+
+        true ->
+          :ok
+      end
+    end
+
+    send(parent, %Closed{socket: self(), ref: nil, reason: reason})
+
+    {:stop, {:shutdown, {:closed, reason}}, socket}
   end
 end

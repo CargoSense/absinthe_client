@@ -1,9 +1,10 @@
 defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   use ExUnit.Case, async: false
   use Slipstream.SocketTest
-  alias AbsintheClient.WebSocket.AbsintheWs
+  alias AbsintheClient.WebSocket.{AbsintheWs, Closed, Reply}
 
   @control_topic "__absinthe__:control"
+  @rejection {:error, {:upgrade_failure, %{status_code: 403, resp_headers: [], reason: nil}}}
 
   test "connects and joins control topic" do
     socket_pid =
@@ -120,6 +121,51 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_payload}
   end
 
+  test "transport failures do not count toward max rejections" do
+    client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 1)
+    ref = Process.monitor(client)
+
+    disconnect(client, :closed)
+    connect_and_assert_join client, @control_topic, %{}, :ok
+
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+  end
+
+  test "closes after max rejections and notifies the parent and subscribers" do
+    client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 2)
+    monitor_ref = Process.monitor(client)
+
+    query = subscription_query()
+    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, push_ref
+    reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id(client)}})
+    assert_receive %Reply{ref: ^ref, status: :ok}
+
+    disconnect(client, @rejection)
+    _ = :sys.get_state(client)
+    refute_received %Closed{}
+
+    disconnect(client, @rejection)
+
+    assert_receive %Closed{socket: ^client, ref: ^ref, reason: @rejection}
+    assert_receive %Closed{socket: ^client, ref: nil, reason: @rejection}
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, @rejection}}}
+  end
+
+  test "replies with an error to pushes awaiting a reply when closing" do
+    client = start_client!([uri: "wss://localhost"], max_rejections: 1)
+
+    query = subscription_query()
+    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, _push_ref
+
+    disconnect(client, @rejection)
+
+    assert_receive %Reply{event: "doc", ref: ^ref, status: :error, payload: @rejection}
+    assert_receive %Closed{socket: ^client, ref: nil, reason: @rejection}
+    refute_received %Closed{ref: ^ref}
+  end
+
   test "adopts an updated request" do
     client = start_client!()
     request = Req.new(url: "ws://localhost")
@@ -129,9 +175,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert %{assigns: %{request: ^request}} = :sys.get_state(client)
   end
 
-  defp start_client!(opts \\ [uri: "wss://localhost"]) do
-    client_opts = Keyword.put_new(opts, :test_mode?, true)
-    client_pid = start_supervised!({AbsintheWs, parent: self(), config: client_opts})
+  defp start_client!(config \\ [uri: "wss://localhost"], opts \\ []) do
+    client_opts = Keyword.put_new(config, :test_mode?, true)
+    client_pid = start_supervised!({AbsintheWs, [parent: self(), config: client_opts] ++ opts})
     connect_and_assert_join client_pid, @control_topic, %{}, :ok
     client_pid
   end

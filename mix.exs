@@ -77,6 +77,7 @@ defmodule AbsintheClient.MixProject do
       groups_for_modules: [
         Structures: [
           AbsintheClient.Subscription,
+          AbsintheClient.WebSocket.Closed,
           AbsintheClient.WebSocket.Message,
           AbsintheClient.WebSocket.Reply
         ]

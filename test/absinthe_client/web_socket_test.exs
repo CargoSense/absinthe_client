@@ -137,6 +137,26 @@ defmodule AbsintheClient.WebSocketTest do
     assert Agent.get(calls, & &1) >= 2
   end
 
+  test "stops after max rejections and replies with an error" do
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach(retry: false)
+
+    assert {:ok, ws} =
+             AbsintheClient.WebSocket.connect(req,
+               url: "/auth-socket/websocket",
+               max_rejections: 2
+             )
+
+    monitor_ref = Process.monitor(ws)
+
+    assert %Req.Response{status: 500, body: {:error, {:upgrade_failure, %{status_code: 403}}}} =
+             Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+
+    assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
+  end
+
   test "monitors parent and exits on down", %{socket_url: socket_url} do
     client = AbsintheClient.attach(Req.new(base_url: socket_url))
     listener_pid = start_supervised!({Listener, client})

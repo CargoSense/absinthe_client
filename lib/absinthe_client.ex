@@ -11,7 +11,7 @@ defmodule AbsintheClient do
   alias AbsintheClient.{Utils, WebSocket}
   alias Req.Request
 
-  @allowed_options ~w(graphql web_socket async connect_params)a
+  @allowed_options ~w(graphql web_socket async connect_params max_rejections)a
 
   @default_url "/graphql"
 
@@ -49,6 +49,11 @@ defmodule AbsintheClient do
       WebSocket connects, as a map or a zero-arity function that
       returns a map. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
+
+    * `:max_rejections` - Optional. The number of consecutive times the
+      server may reject the WebSocket connection before the socket
+      stops. The default value is `5`. Refer to
+      `AbsintheClient.WebSocket.connect/1` for more information.
 
   If you want to set any of these options when attaching the plugin,
   pass them as the second argument.
@@ -260,11 +265,11 @@ defmodule AbsintheClient do
       iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
       AbsintheClient.Subscription
 
-  Failed authorization replies will timeout:
+  Repeatedly rejected connections reply with an error and close the socket:
 
       iex> req =
       ...>   Req.new(base_url: "http://localhost:4002/", auth: {:bearer, "invalid-token"})
-      ...>   |> AbsintheClient.attach(retry: false)
+      ...>   |> AbsintheClient.attach(retry: false, max_rejections: 2)
       iex> ws = req |> AbsintheClient.WebSocket.connect!(url: "/auth-socket/websocket")
       iex> res = Req.request!(req,
       ...>   web_socket: ws,
@@ -281,8 +286,14 @@ defmodule AbsintheClient do
       ...>     %{"repository" => "ELIXIR"}
       ...>   }
       ...> )
-      iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
-      ** (RuntimeError) timeout
+      iex> AbsintheClient.WebSocket.await_reply!(res).status
+      :error
+      iex> receive do
+      ...>   %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil, reason: reason} ->
+      ...>     {:error, {:upgrade_failure, %{status_code: status}}} = reason
+      ...>     status
+      ...> end
+      403
 
   ### Subscription data
 
