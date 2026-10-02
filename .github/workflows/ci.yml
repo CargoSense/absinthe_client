@@ -1,61 +1,54 @@
 name: CI
 
 on:
-  push:
-    branches: ["main"]
   pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 env:
   MIX_ENV: test
 
 jobs:
+ lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: CargoSense/setup-elixir-project@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: 28
+      - run: mix format --check-formatted
+      - run: mix deps.unlock --check-unused
+        if: ${{ !cancelled() }}
+      - run: mix credo
+        if: ${{ !cancelled() }}
   test:
     name: Elixir ${{ matrix.pair.elixir }} OTP ${{ matrix.pair.otp }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - pair:
-              elixir: "1.15"
-              otp: "25"
-          - pair:
-              elixir: "1.19"
-              otp: "28"
-            lint: lint
+        otp: [29, 28, 27, 26, 25]
+        elixir: ["1.20", "1.19", "1.18"]
+        exclude:
+          - otp: 26
+            elixir: "1.20"
+          - otp: 25
+            elixir: "1.20"
+          - otp: 29
+            elixir: "1.19"
+          - otp: 25
+            elixir: "1.19"
+          - otp: 29
+            elixir: "1.18"
+          - otp: 28
+            elixir: "1.18"
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: erlef/setup-beam@v1
+      - uses: actions/checkout@v7
+      - uses: CargoSense/setup-elixir-project@v1
         with:
-          otp-version: ${{ matrix.pair.otp }}
-          elixir-version: ${{ matrix.pair.elixir }}
-
-      - uses: actions/cache@v5
-        with:
-          path: deps
-          key: mix-deps-${{ hashFiles('**/mix.lock') }}
-
-      - run: mix deps.get --check-locked
-
-      - run: mix format --check-formatted
-        if: ${{ matrix.lint }}
-
-      - run: mix deps.unlock --check-unused
-        if: ${{ matrix.lint }}
-      - run: mix deps.compile
-      - run: mix compile --warnings-as-errors
-        if: ${{ matrix.lint }}
-
+          build-flags: --no-optional-deps --warnings-as-errors
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
       - run: mix test
-        if: ${{ ! matrix.lint }}
-
-      - run: mix test --cover --warnings-as-errors
-        if: ${{ matrix.lint }}
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: coverage
-          path: cover
-        if: ${{ matrix.lint }}
