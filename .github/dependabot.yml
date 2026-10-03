@@ -2,14 +2,20 @@ version: 2
 
 updates:
   - package-ecosystem: "devcontainers"
+    labels:
+      - "dependabot"
     directory: "/"
     schedule:
       interval: "monthly"
   - package-ecosystem: "github-actions"
+    labels:
+      - "dependabot"
     directory: "/"
     schedule:
       interval: "monthly"
   - package-ecosystem: "mix"
+    labels:
+      - "dependabot"
     directory: "/"
     schedule:
       interval: "monthly"
