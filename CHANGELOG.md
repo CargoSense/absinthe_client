@@ -1,25 +1,141 @@
 # CHANGELOG
 
-## Unreleased
+## v0.2.0-dev
 
-### Breaking changes
+AbsintheClient v0.2 requires Req v0.7+.
 
-- `AbsintheClient.WebSocket.connect/1,2` now return the socket `pid()` instead of
-  a registered name. Sockets are tracked in a `Registry` keyed by parent process,
-  URL, and transport options, so credentials no longer affect socket identity and
-  no atoms are created per connection.
-- `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
+### WebSocket credential refresh
+
+The socket now runs the request steps again before every connection
+attempt. Pass a zero-arity function to `:auth` or `:connect_params` and
+the socket calls it each time it connects:
+
+    req =
+      Req.new(
+        base_url: "https://example.com",
+        auth: fn -> {:bearer, MyApp.Token.current!()} end
+      )
+      |> AbsintheClient.attach()
+
+    {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+
+The function runs inside the socket process. Read the token from a
+shared place such as an `Agent`, an ETS table, or a token server.
+
+When the server still rejects the connection, the socket gives up after
+`:max_rejections` consecutive HTTP 4xx responses (default `5`). It
+replies with an error to every pending operation, sends an
+`AbsintheClient.WebSocket.Closed` message to the parent process and to
+each subscriber, and stops. Transport failures are not counted and keep
+the unbounded backoff from v0.1.
+
+### Socket identity
+
+Sockets are now registered in a `Registry` under the parent process,
+the URL, and the transport options. Credentials are not part of the key,
+so a second `AbsintheClient.WebSocket.connect/2` call from the same
+process with a new token re-uses the running socket and hands it the new
+request for its next reconnect. `connect/1,2` return the socket `pid()`
+instead of a generated atom.
+
+### Upgrading from v0.1.x
+
+  1. Update your dependency:
+
+         {:absinthe_client, "~> 0.2.0"}
+
+     AbsintheClient v0.2 depends on `{:req, "~> 0.7"}`. If your app pins
+     an older Req, update it at the same time.
+
+  2. `AbsintheClient.WebSocket.connect/1,2` and `connect!/1,2` return a
+     `pid()`. Remove any name lookups and keep the pid in your process
+     state:
+
+         # before
+         ws |> GenServer.whereis() |> Process.alive?()
+
+         # after
+         Process.alive?(ws)
+
+     The `:web_socket` request option accepts the pid as before. Code that
+     pattern matched on the `AbsintheClient.SocketSupervisor.Socket_*`
+     atom names must change, as those names no longer exist.
+
+  3. Handle `%AbsintheClient.WebSocket.Closed{}` in the process that
+     called `connect/2` and in every process that created a subscription.
+     A `nil` ref is the notification to the parent; any other ref names a
+     subscription that is gone:
+
+         def handle_info(%AbsintheClient.WebSocket.Closed{ref: nil, reason: reason}, state) do
+           # The socket stopped. Fix the credentials and call connect/2 again.
+           {:noreply, state}
+         end
+
+         def handle_info(%AbsintheClient.WebSocket.Closed{ref: ref}, state) do
+           # The subscription with this ref is gone.
+           {:noreply, state}
+         end
+
+     In v0.1 a socket with rejected credentials retried forever and sent
+     no message. To keep retrying for longer, raise `:max_rejections` on
+     `AbsintheClient.attach/2` or `connect/2`.
+
+  4. Expect error replies instead of timeouts. When the socket stops while
+     an operation is pending, `Req.request!/2` returns a response with
+     status `500` and the disconnect reason as the body, and
+     `AbsintheClient.WebSocket.await_reply!/2` returns a reply with
+     `status: :error`. Code that treated a timeout as "not authorized"
+     should match on the error reply instead.
+
+  5. Replace static credentials with a function where tokens can expire:
+
+         # before
+         Req.new(base_url: url, auth: {:bearer, token})
+
+         # after
+         Req.new(base_url: url, auth: fn -> {:bearer, MyApp.Token.current!()} end)
+
+     Static tuples and maps still work. They are sent on every reconnect
+     but never refreshed.
+
+  6. If you start `AbsintheClient.WebSocket.AbsintheWs` directly, for
+     example in tests, switch to the keyword form:
+
+         # before
+         start_supervised!({AbsintheWs, {self(), uri: uri}})
+
+         # after
+         start_supervised!({AbsintheWs, parent: self(), config: [uri: uri]})
+
+  7. If one process opened two sockets to the same URL with different
+     credentials, it now gets one socket that uses the most recent
+     request. Open the sockets from separate parent processes to keep
+     them apart.
+
+### Potential breaking changes
+
+  * `AbsintheClient.WebSocket.connect/1,2` return a `pid()` instead of a
+    registered name.
+  * Sockets stop after `:max_rejections` consecutive HTTP 4xx rejections
+    and send `AbsintheClient.WebSocket.Closed` instead of retrying forever.
+  * Pending operations receive an error reply when the socket stops
+    instead of timing out.
+  * `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
+  * Req v0.7 or later is required.
 
 ### Enhancements
 
-- Re-run the request steps before every WebSocket connection attempt, so
-  `auth: fn -> ... end` and `connect_params: fn -> ... end` refresh expired
-  tokens on reconnect (#12).
-- Connecting again from the same parent with new credentials re-uses the socket
-  and updates the request used for the next reconnect.
-- Add `:max_rejections` option. After that many consecutive HTTP 4xx rejections
-  the socket replies with an error to pending operations, sends
-  `AbsintheClient.WebSocket.Closed` to the parent and subscribers, and stops.
+  * Re-runs the request steps before every WebSocket connection attempt so
+    `auth: fn -> ... end` and `connect_params: fn -> ... end` refresh
+    expired tokens.
+  * Re-uses the running socket when the same parent connects again with
+    new credentials, and adopt the new request for the next reconnect.
+  * Adds the `:max_rejections` option.
+  * Adds `AbsintheClient.WebSocket.Closed`.
+  * Registers sockets in a `Registry` instead of creating an atom per
+    connection.
+  * Restarts the socket supervisor together with the `Registry` so a
+    `Registry` crash cannot leave unregistered sockets behind.
 
 ## v0.2.0 (2026-10-09)
 
