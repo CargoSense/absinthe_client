@@ -20,7 +20,7 @@ defmodule AbsintheClient.WebSocket.Config do
   """
   @spec build(Request.t()) :: {:ok, t()} | {:error, Exception.t()}
   def build(%Request{} = request) do
-    case Req.request(%{request | adapter: &__MODULE__.run/1}) do
+    case Req.request(%{request | adapter: __MODULE__}) do
       {:ok, %{body: %__MODULE__{} = config}} -> {:ok, config}
       {:error, exception} -> {:error, exception}
     end

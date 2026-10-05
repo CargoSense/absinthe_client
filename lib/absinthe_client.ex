@@ -360,7 +360,7 @@ defmodule AbsintheClient do
   defp put_ws_adapter(%Request{} = request) do
     case Map.fetch(request.options, :web_socket) do
       {:ok, _web_socket} ->
-        %Request{request | adapter: &WebSocket.run/1}
+        %Request{request | adapter: WebSocket}
 
       :error ->
         request
