@@ -48,7 +48,7 @@ defmodule AbsintheClient.MixProject do
   defp deps do
     [
       {:castore, ">= 0.0.0"},
-      {:req, "~> 0.4"},
+      {:req, "~> 0.7"},
       {:slipstream, "~> 1.0"},
       {:absinthe_phoenix, "~> 2.0.0", only: [:dev, :docs, :test]},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
