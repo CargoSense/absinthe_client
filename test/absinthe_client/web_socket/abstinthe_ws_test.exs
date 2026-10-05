@@ -122,7 +122,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_payload}
   end
 
-  test "transport failures do not count toward max rejections" do
+  test "dropped connections do not count toward max rejections" do
     client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 1)
     ref = Process.monitor(client)
 
