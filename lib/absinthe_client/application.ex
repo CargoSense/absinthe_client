@@ -10,6 +10,7 @@ defmodule AbsintheClient.Application do
       {DynamicSupervisor, strategy: :one_for_one, name: AbsintheClient.SocketSupervisor}
     ]
 
-    Supervisor.start_link(children, strategy: :one_for_one)
+    # Sockets outlive a crashed Registry, so a restart must take them down too.
+    Supervisor.start_link(children, strategy: :rest_for_one)
   end
 end
