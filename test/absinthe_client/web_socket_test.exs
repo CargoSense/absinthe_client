@@ -137,6 +137,7 @@ defmodule AbsintheClient.WebSocketTest do
     assert Agent.get(calls, & &1) >= 2
   end
 
+  @tag :capture_log
   test "stops after max rejections and replies with an error" do
     req =
       Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})

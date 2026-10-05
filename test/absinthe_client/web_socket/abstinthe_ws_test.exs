@@ -1,6 +1,7 @@
 defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   use ExUnit.Case, async: false
   use Slipstream.SocketTest
+  import ExUnit.CaptureLog
   alias AbsintheClient.WebSocket.{AbsintheWs, Closed, Reply}
 
   @control_topic "__absinthe__:control"
@@ -131,6 +132,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     refute_received {:DOWN, ^ref, :process, ^client, _}
   end
 
+  @tag :capture_log
   test "closes after max rejections and notifies the parent and subscribers" do
     client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 2)
     monitor_ref = Process.monitor(client)
@@ -145,13 +147,20 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     _ = :sys.get_state(client)
     refute_received %Closed{}
 
-    disconnect(client, @rejection)
+    log =
+      capture_log(fn ->
+        disconnect(client, @rejection)
 
-    assert_receive %Closed{socket: ^client, ref: ^ref, reason: @rejection}
-    assert_receive %Closed{socket: ^client, ref: nil, reason: @rejection}
-    assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, @rejection}}}
+        assert_receive {:DOWN, ^monitor_ref, :process, ^client,
+                        {:shutdown, {:closed, @rejection}}}
+      end)
+
+    assert log =~ "closed after 2 rejected connection attempts"
+    assert_received %Closed{socket: ^client, ref: ^ref, reason: @rejection}
+    assert_received %Closed{socket: ^client, ref: nil, reason: @rejection}
   end
 
+  @tag :capture_log
   test "replies with an error to pushes awaiting a reply when closing" do
     client = start_client!([uri: "wss://localhost"], max_rejections: 1)
 
