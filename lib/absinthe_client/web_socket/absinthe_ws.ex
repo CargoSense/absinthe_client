@@ -286,6 +286,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     update(socket, :rejections, &(&1 + 1))
   end
 
+  defp count_rejection(socket, {:error, %Mint.TransportError{}}), do: socket
+
   defp count_rejection(socket, {:error, %{__exception__: true}}) do
     update(socket, :rejections, &(&1 + 1))
   end
