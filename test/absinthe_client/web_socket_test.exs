@@ -158,6 +158,46 @@ defmodule AbsintheClient.WebSocketTest do
     assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
   end
 
+  @tag :capture_log
+  test "connect/2 after Closed starts a new socket" do
+    # Holds the socket open between sending Closed and exiting, widening the race.
+    handler_id = {__MODULE__, make_ref()}
+    event = [:slipstream, :client, :handle_disconnect, :stop]
+    :telemetry.attach(handler_id, event, &__MODULE__.pause_closing_socket/4, self())
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach(retry: false)
+
+    options = [url: "/auth-socket/websocket", max_rejections: 1]
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
+
+    assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
+    assert_receive {:closing, ^ws}
+
+    assert {:ok, new_ws} = AbsintheClient.WebSocket.connect(req, options)
+    send(ws, :resume)
+
+    refute new_ws == ws
+  end
+
+  def pause_closing_socket(_event, _measurements, metadata, parent) do
+    case metadata do
+      %{return: {:stop, _, _}, socket: %{assigns: %{parent: ^parent}}} ->
+        send(parent, {:closing, self()})
+
+        receive do
+          :resume -> :ok
+        after
+          1_000 -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
   test "monitors parent and exits on down", %{socket_url: socket_url} do
     client = AbsintheClient.attach(Req.new(base_url: socket_url))
     listener_pid = start_supervised!({Listener, client})

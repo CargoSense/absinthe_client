@@ -313,6 +313,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   end
 
   defp close(socket, reason) do
+    # Unregister first so a connect/2 in response to Closed starts a new socket.
+    for key <- Registry.keys(AbsintheClient.SocketRegistry, self()),
+        do: Registry.unregister(AbsintheClient.SocketRegistry, key)
+
     %{parent: parent, pending: pending, inflight: inflight, rejections: rejections} =
       socket.assigns
 
