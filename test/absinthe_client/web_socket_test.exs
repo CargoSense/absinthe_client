@@ -160,7 +160,8 @@ defmodule AbsintheClient.WebSocketTest do
 
   @tag :capture_log
   test "connect/2 after Closed starts a new socket" do
-    # Holds the socket open between sending Closed and exiting, widening the race.
+    # Attach a telemetry handler that will pause the closing socket to guarantee
+    # that the subsequent connect arrives before the close completes.
     handler_id = {__MODULE__, make_ref()}
     event = [:slipstream, :client, :handle_disconnect, :stop]
     :telemetry.attach(handler_id, event, &__MODULE__.pause_closing_socket/4, self())
@@ -173,6 +174,8 @@ defmodule AbsintheClient.WebSocketTest do
     options = [url: "/auth-socket/websocket", max_rejections: 1]
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
 
+    # The test waits for the telemetry handler to say the socket is `:closing`.
+    # The telemetry handler then blocks the close while waiting for `:resume`.
     assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
     assert_receive {:closing, ^ws}
 
