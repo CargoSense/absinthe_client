@@ -361,11 +361,12 @@ defmodule AbsintheClient.WebSocket do
   def push(socket, graphql) do
     params = Utils.request_json!(graphql)
 
+    # The monitor ref doubles as the push ref so await_reply/2 notices a dead socket.
     send(socket, %Push{
       event: "doc",
       params: params,
       pid: self(),
-      ref: ref = make_ref()
+      ref: ref = Process.monitor(socket)
     })
 
     ref
@@ -384,7 +385,7 @@ defmodule AbsintheClient.WebSocket do
       %{"__type" => %{"name" => "Repo"}}
   """
   @spec await_reply(Req.Response.t() | reference(), non_neg_integer()) ::
-          {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, :timeout}
+          {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, :timeout | {:closed, term()}}
   def await_reply(response_or_ref, timeout \\ 5000)
 
   def await_reply(%Req.Response{body: ref}, timeout) when is_reference(ref) do
@@ -394,9 +395,14 @@ defmodule AbsintheClient.WebSocket do
   def await_reply(ref, timeout) when is_reference(ref) do
     receive do
       %Reply{ref: ^ref} = reply ->
+        Process.demonitor(ref, [:flush])
         {:ok, reply}
+
+      {:DOWN, ^ref, :process, _, reason} ->
+        {:error, {:closed, reason}}
     after
       timeout ->
+        Process.demonitor(ref, [:flush])
         {:error, :timeout}
     end
   end
@@ -431,6 +437,7 @@ defmodule AbsintheClient.WebSocket do
     case await_reply(ref, timeout) do
       {:ok, reply} -> reply
       {:error, :timeout} -> raise RuntimeError, "timeout"
+      {:error, {:closed, reason}} -> raise RuntimeError, "socket closed: #{inspect(reason)}"
     end
   end
 
