@@ -218,6 +218,22 @@ defmodule AbsintheClient.WebSocketTest do
     assert {:error, {:closed, _}} = AbsintheClient.WebSocket.await_reply(ref, 1_000)
   end
 
+  @tag :capture_log
+  test "Req.request/2 returns an error for a push to a closed socket" do
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach(retry: false)
+
+    options = [url: "/auth-socket/websocket", max_rejections: 1]
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
+
+    monitor_ref = Process.monitor(ws)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
+
+    assert {:error, %AbsintheClient.WebSocket.Error{reason: {:closed, :noproc}}} =
+             Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+  end
+
   test "monitors parent and exits on down", %{socket_url: socket_url} do
     client = AbsintheClient.attach(Req.new(base_url: socket_url))
     listener_pid = start_supervised!({Listener, client})

@@ -36,7 +36,9 @@ defmodule AbsintheClient do
 
     * `:receive_timeout` - Optional. The maximum time (in milliseconds)
       to wait for the WebSocket server to reply. The default value is
-      `15_000`.
+      `15_000`. `Req.request/2` returns
+      `{:error, %AbsintheClient.WebSocket.Error{}}` when the time runs
+      out or the socket exits before it replies.
 
     * `:async` - Optional. When set to `true`, AbsintheClient will
       return the Response without waiting for a reply from the

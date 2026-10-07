@@ -119,7 +119,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
       {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
         if is_reference(push.ref) and push.pushed_counter == 1,
-          do: send(pid, reply(push, push_ref, result))
+          do: send(reply_to(push), reply(push, push_ref, result))
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
 
@@ -133,6 +133,11 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
         {:ok, socket}
     end
   end
+
+  # A document ref is a reply alias, so the reply also removes the caller's
+  # monitor. Unsubscribe pushes share one plain ref, so they reply to the pid.
+  defp reply_to(%Push{event: "doc", ref: ref}) when is_reference(ref), do: ref
+  defp reply_to(%Push{pid: pid}), do: pid
 
   defp reply(%Push{} = push, push_ref, result),
     do: reply(%Reply{event: push.event, ref: push.ref, push_ref: push_ref}, result)
@@ -331,7 +336,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     for {%Push{pid: pid, ref: ref} = push, awaiting_reply?} <- pushes, is_pid(pid) do
       cond do
         awaiting_reply? and is_reference(ref) ->
-          send(pid, reply(push, nil, {:error, reason}))
+          send(reply_to(push), reply(push, nil, {:error, reason}))
 
         push.event == "doc" and not awaiting_reply? ->
           send(pid, %Closed{socket: self(), ref: ref, reason: reason})
