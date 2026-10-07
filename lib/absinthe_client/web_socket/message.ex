@@ -84,3 +84,29 @@ defmodule AbsintheClient.WebSocket.Closed do
   @type t :: %__MODULE__{}
   defstruct [:socket, :ref, :reason]
 end
+
+defmodule AbsintheClient.WebSocket.Error do
+  @moduledoc """
+  Error returned when a pushed document gets no reply.
+
+  `Req.request/2` returns this exception in its error tuple, and
+  `AbsintheClient.WebSocket.await_reply!/2` raises it.
+
+  The `:reason` is one of:
+
+    * `:timeout` - The server did not reply within the receive timeout.
+
+    * `{:closed, reason}` - The socket process exited before it replied.
+      The inner reason is the exit reason of the socket process.
+
+  """
+  defexception [:reason]
+
+  @type t :: %__MODULE__{reason: :timeout | {:closed, term()}}
+
+  @impl true
+  def message(%{reason: :timeout}), do: "timed out waiting for a reply from the WebSocket"
+
+  def message(%{reason: {:closed, reason}}),
+    do: "the WebSocket exited before it replied, got: #{inspect(reason)}"
+end

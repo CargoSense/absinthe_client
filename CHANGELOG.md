@@ -85,7 +85,10 @@ instead of a generated atom.
      status `500` and the disconnect reason as the body, and
      `AbsintheClient.WebSocket.await_reply!/2` returns a reply with
      `status: :error`. Code that treated a timeout as "not authorized"
-     should match on the error reply instead.
+     should match on the error reply instead. A push to a socket that
+     has already stopped returns `{:error, %AbsintheClient.WebSocket.Error{}}`
+     from `Req.request/2` and `{:error, {:closed, reason}}` from
+     `AbsintheClient.WebSocket.await_reply/2`.
 
   5. Replace static credentials with a function where tokens can expire:
 
@@ -120,6 +123,12 @@ instead of a generated atom.
     and send `AbsintheClient.WebSocket.Closed` instead of retrying forever.
   * Pending operations receive an error reply when the socket stops
     instead of timing out.
+  * `Req.request/2` returns `{:error, %AbsintheClient.WebSocket.Error{}}`
+    when the server does not reply in time or the socket exits first.
+    `AbsintheClient.WebSocket.await_reply!/2` raises the same exception
+    instead of a `RuntimeError`.
+  * A reply that arrives after `AbsintheClient.WebSocket.await_reply/2`
+    timed out is discarded instead of delivered to the caller's mailbox.
   * `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
   * Req v0.7 or later is required.
 
@@ -132,6 +141,10 @@ instead of a generated atom.
     new credentials, and adopt the new request for the next reconnect.
   * Adds the `:max_rejections` option.
   * Adds `AbsintheClient.WebSocket.Closed`.
+  * `AbsintheClient.WebSocket.await_reply/2` returns
+    `{:error, {:closed, reason}}` as soon as the socket exits instead of
+    waiting for the timeout.
+  * Adds `AbsintheClient.WebSocket.Error`.
   * Registers sockets in a `Registry` instead of creating an atom per
     connection.
   * Restarts the socket supervisor together with the `Registry` so a
