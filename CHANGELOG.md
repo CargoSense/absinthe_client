@@ -2,7 +2,7 @@
 
 ## v0.2.0-dev
 
-AbsintheClient v0.2 requires Req v0.7+.
+AbsintheClient v0.2 requires Elixir v1.15+ and Req v0.7+.
 
 ### WebSocket credential refresh
 
@@ -23,11 +23,14 @@ The function runs inside the socket process. Read the token from a
 shared place such as an `Agent`, an ETS table, or a token server.
 
 When the server still rejects the connection, the socket gives up after
-`:max_rejections` consecutive HTTP 4xx responses (default `5`). It
+`:max_rejections` consecutive rejections (default `5`). A rejection is
+an HTTP 4xx response to the upgrade request, or a failure to build the
+request, for example when the `:auth` function raises. The socket
 replies with an error to every pending operation, sends an
 `AbsintheClient.WebSocket.Closed` message to the parent process and to
-each subscriber, and stops. Transport failures are not counted and keep
-the unbounded backoff from v0.1.
+each subscriber, and stops. Transport errors, such as a refused
+connection, and 5xx responses are not counted and keep the unbounded
+backoff from v0.1.
 
 ### Socket identity
 
@@ -119,8 +122,9 @@ instead of a generated atom.
 
   * `AbsintheClient.WebSocket.connect/1,2` return a `pid()` instead of a
     registered name.
-  * Sockets stop after `:max_rejections` consecutive HTTP 4xx rejections
-    and send `AbsintheClient.WebSocket.Closed` instead of retrying forever.
+  * Sockets stop after `:max_rejections` consecutive rejections (HTTP 4xx
+    responses or request build failures) and send
+    `AbsintheClient.WebSocket.Closed` instead of retrying forever.
   * Pending operations receive an error reply when the socket stops
     instead of timing out.
   * `Req.request/2` returns `{:error, %AbsintheClient.WebSocket.Error{}}`
@@ -130,6 +134,7 @@ instead of a generated atom.
   * A reply that arrives after `AbsintheClient.WebSocket.await_reply/2`
     timed out is discarded instead of delivered to the caller's mailbox.
   * `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
+  * Elixir v1.15 or later is required.
   * Req v0.7 or later is required.
 
 ### Enhancements
