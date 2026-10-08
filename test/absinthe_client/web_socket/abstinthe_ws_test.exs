@@ -181,22 +181,39 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   end
 
   @tag :capture_log
-  test "a 429 response sets the delay from its Retry-After header" do
-    client = start_client!([uri: "wss://localhost"], max_rejections: 2)
+  test "408 and 429 responses do not count toward max rejections" do
+    for status <- [408, 429] do
+      client = start_client!([uri: "wss://localhost"], max_rejections: 1)
+      ref = Process.monitor(client)
 
-    log =
-      capture_log(fn ->
-        disconnect(
-          client,
-          {:error,
-           {:upgrade_failure,
-            %{status_code: 429, resp_headers: [{"retry-after", "7"}], reason: nil}}}
-        )
+      disconnect(client, {:error, {:upgrade_failure, %{status_code: status, resp_headers: []}}})
+      _ = :sys.get_state(client)
 
-        _ = :sys.get_state(client)
-      end)
+      refute_received {:DOWN, ^ref, :process, ^client, _}
+      stop_supervised!(AbsintheWs)
+    end
+  end
 
-    assert log =~ "rejected with status 429, will retry in 7000ms, 1 attempt left"
+  @tag :capture_log
+  test "429 and 503 responses set the delay from their Retry-After header" do
+    for status <- [429, 503] do
+      client = start_client!([uri: "wss://localhost"], max_rejections: 1)
+
+      log =
+        capture_log(fn ->
+          disconnect(
+            client,
+            {:error,
+             {:upgrade_failure,
+              %{status_code: status, resp_headers: [{"retry-after", "7"}], reason: nil}}}
+          )
+
+          _ = :sys.get_state(client)
+        end)
+
+      assert log =~ "connection failed with status #{status}, will retry in 7000ms"
+      stop_supervised!(AbsintheWs)
+    end
   end
 
   @tag :capture_log

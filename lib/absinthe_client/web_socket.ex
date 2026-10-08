@@ -106,7 +106,8 @@ defmodule AbsintheClient.WebSocket do
       token if one is present on the request. The default value is `nil`.
 
     * `:max_rejections` - Optional. The number of consecutive times the
-      server may reject the connection (HTTP 4xx on upgrade) before the
+      server may reject the connection (HTTP 4xx on upgrade, except
+      408 and 429) before the
       socket stops. Defaults to `5`. Refer to the Token refresh section
       for more information.
 
@@ -152,12 +153,14 @@ defmodule AbsintheClient.WebSocket do
   The function runs inside the socket process, so it must read the
   token from a shared place such as an `Agent` or ETS table.
 
-  Transport failures retry with Slipstream's backoff until the parent
-  process exits. A rejected connection, that is an HTTP 4xx status on
+  Transport failures, 5xx responses, and the transient 408 and 429
+  responses retry with Slipstream's backoff until the parent process
+  exits. A rejected connection, that is any other HTTP 4xx status on
   the upgrade request or a request step that raises, retries with the
   same backoff as the `Req.Steps.retry/1` step: about 1s, 2s, 4s, 8s
-  and so on, with jitter. A `Retry-After` header on a 429 response
-  sets the delay instead. Each rejection logs a warning. After
+  and so on, with jitter. A `Retry-After` header on a 429 or 503
+  response sets the delay instead. Each failed upgrade logs a
+  warning. After
   `:max_rejections` rejections in a row the socket sends an
   `AbsintheClient.WebSocket.Closed` message to the parent and to each
   subscriber, returns `{:error, {:closed, reason}}` from

@@ -7,6 +7,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   @control_topic "__absinthe__:control"
 
+  # The same statuses Req's retry step treats as transient below 500.
+  @transient_statuses [408, 429]
+
   @doc """
   Starts a Absinthe client process with the given options:
 
@@ -109,6 +112,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
       true ->
         {delay, socket} = reconnect_delay(socket, reason)
+        log_retry(reason, delay)
         schedule_reconnect(socket, delay)
     end
   end
@@ -322,8 +326,11 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   defp reconnect?(%{assigns: %{reconnect: reconnect}}, _reason), do: reconnect == true
 
   # Only a reachable server that refuses the connection, or a request that
-  # cannot be built, counts toward the limit. Transport errors retry forever.
-  defp rejection?({:error, {:upgrade_failure, %{status_code: status}}}), do: status in 400..499
+  # cannot be built, counts toward the limit. Transport errors, 5xx responses
+  # and the transient 4xx statuses retry forever.
+  defp rejection?({:error, {:upgrade_failure, %{status_code: status}}}),
+    do: status in 400..499 and status not in @transient_statuses
+
   defp rejection?({:error, %Mint.TransportError{}}), do: false
   defp rejection?({:error, %{__exception__: true}}), do: true
   defp rejection?(_reason), do: false
@@ -352,9 +359,11 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   end
 
   defp default_delay(socket, reason, slipstream_delay) do
-    if rejection?(reason),
-      do: retry_after(reason) || exp_backoff_with_jitter(socket.assigns.rejections - 1),
-      else: slipstream_delay
+    cond do
+      delay = retry_after(reason) -> delay
+      rejection?(reason) -> exp_backoff_with_jitter(socket.assigns.rejections - 1)
+      true -> slipstream_delay
+    end
   end
 
   defp custom_delay(fun, count) do
@@ -368,8 +377,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     end
   end
 
-  defp retry_after({:error, {:upgrade_failure, %{status_code: 429, resp_headers: headers}}}) do
-    Req.Response.get_retry_after(Req.Response.new(status: 429, headers: headers))
+  # Req reads Retry-After on the same two statuses.
+  defp retry_after({:error, {:upgrade_failure, %{status_code: status, resp_headers: headers}}})
+       when status in [429, 503] do
+    Req.Response.get_retry_after(Req.Response.new(status: status, headers: headers))
   end
 
   defp retry_after(_reason), do: nil
@@ -385,6 +396,15 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       "#{inspect(__MODULE__)} #{describe(reason)}, will retry in #{delay}ms, #{left} left"
     )
   end
+
+  # Only an upgrade failure is logged. A transport error keeps the quiet retry from v0.1.
+  defp log_retry({:error, {:upgrade_failure, %{status_code: status}}}, delay) do
+    Logger.warning(
+      "#{inspect(__MODULE__)} connection failed with status #{status}, will retry in #{delay}ms"
+    )
+  end
+
+  defp log_retry(_reason, _delay), do: :ok
 
   defp describe({:error, {:upgrade_failure, %{status_code: status}}}),
     do: "connection rejected with status #{status}"

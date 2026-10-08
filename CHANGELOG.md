@@ -28,14 +28,15 @@ step (about 1s, 2s, 4s, 8s, ...), honours a `Retry-After` header on a
 429 response, logs a warning per attempt, and gives up after
 `:max_rejections` consecutive rejections (default `5`). Set
 `:reconnect_delay` to a number of milliseconds or a function of the
-attempt count to change the delay for every reconnect. A rejection is an HTTP 4xx
-response to the upgrade request, or a failure to build the request,
-for example when the `:auth` function raises. The socket returns an
-error to every pending operation, sends an
+attempt count to change the delay for every reconnect. A rejection is
+an HTTP 4xx response to the upgrade request, or a failure to build the
+request, for example when the `:auth` function raises. The socket
+returns an error to every pending operation, sends an
 `AbsintheClient.WebSocket.Closed` message to the parent process and to
 each subscriber, and stops. Transport errors, such as a refused
-connection, and 5xx responses are not counted and keep the unbounded
-backoff from v0.1.
+connection, 5xx responses, and the transient 408 and 429 responses are
+not counted and keep the unbounded backoff from v0.1, with a
+`Retry-After` header on a 429 or 503 response setting the delay.
 
 ### Socket identity
 
@@ -131,7 +132,7 @@ instead of a generated atom.
   * `AbsintheClient.WebSocket.connect/1,2` return a `pid()` instead of a
     registered name.
   * Sockets stop after `:max_rejections` consecutive rejections (HTTP 4xx
-    responses or request build failures) and send
+    responses other than 408 and 429, or request build failures) and send
     `AbsintheClient.WebSocket.Closed` instead of retrying forever.
   * Pending operations receive an error when the socket stops instead of
     timing out. `Req.request/2` returns an
