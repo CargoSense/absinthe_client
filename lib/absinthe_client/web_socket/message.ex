@@ -40,27 +40,49 @@ defmodule AbsintheClient.WebSocket.Message do
   defstruct [:topic, :event, :payload, :ref, :push_ref]
 end
 
-defmodule AbsintheClient.WebSocket.Push do
-  # Internal structure to track pushed requests.
+defmodule AbsintheClient.WebSocket.Op do
+  # Internal structure to track pushed operations inside the socket.
   @moduledoc false
   @type t :: %__MODULE__{}
-  defstruct [:event, :pid, :params, :ref, pushed_counter: 0]
+  defstruct [:event, :pid, :params, :ref, pushed_counter: 0, cancelled: false]
 
   @doc """
-  Returns a new push message.
+  Returns a new operation.
 
   ## Examples
 
-      iex> AbsintheClient.WebSocket.Push.new()
-      %AbsintheClient.WebSocket.Push{}
+      iex> AbsintheClient.WebSocket.Op.new()
+      %AbsintheClient.WebSocket.Op{}
 
-      iex> AbsintheClient.WebSocket.Push.new(event: "foo")
-      %AbsintheClient.WebSocket.Push{event: "foo"}
+      iex> AbsintheClient.WebSocket.Op.new(event: "foo")
+      %AbsintheClient.WebSocket.Op{event: "foo"}
   """
   @spec new(options :: keyword()) :: t()
   def new(options \\ []) do
     struct!(__MODULE__, options)
   end
+end
+
+defmodule AbsintheClient.WebSocket.Push do
+  @moduledoc """
+  A document pushed to the WebSocket.
+
+  `AbsintheClient.WebSocket.push/2` returns it, and so does
+  `Req.request/2` with `async: true` in the response body. Pass it to
+  `AbsintheClient.WebSocket.await_reply/2`.
+
+  ## Fields
+
+    * `:socket` - The pid of the WebSocket process.
+
+    * `:ref` - The ref of the push. The `AbsintheClient.WebSocket.Reply`
+      to it, the `AbsintheClient.Subscription` it creates, every
+      `AbsintheClient.WebSocket.Message` for that subscription, and an
+      `AbsintheClient.WebSocket.Closed` about it carry the same ref.
+
+  """
+  @type t :: %__MODULE__{socket: pid(), ref: reference()}
+  defstruct [:socket, :ref]
 end
 
 defmodule AbsintheClient.WebSocket.Closed do

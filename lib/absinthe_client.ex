@@ -44,9 +44,11 @@ defmodule AbsintheClient do
     * `:async` - Optional. When set to `true`, AbsintheClient will
       return the Response without waiting for a reply from the
       WebSocket server. This option only applies when the `:web_socket`
-      option is present. The response body will be a `reference()` and
-      you will need to receive the `AbsintheClient.WebSocket.Reply`
-      message. The default value is `false`.
+      option is present. The response body will be an
+      `AbsintheClient.WebSocket.Push` to pass to
+      `AbsintheClient.WebSocket.await_reply/2`, or you can receive the
+      `AbsintheClient.WebSocket.Reply` message with its ref yourself.
+      The default value is `false`.
 
     * `:connect_params` - Optional. Custom params to be sent when the
       WebSocket connects, as a map or a zero-arity function that

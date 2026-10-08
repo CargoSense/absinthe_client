@@ -148,6 +148,24 @@ instead of a generated atom.
      request. Open the sockets from separate parent processes to keep
      them apart.
 
+  8. `AbsintheClient.WebSocket.push/2` returns an
+     `AbsintheClient.WebSocket.Push` instead of a reference, and so does
+     the body of an `async: true` response. Pass it to
+     `AbsintheClient.WebSocket.await_reply/2`. Its `:ref` field is the
+     ref the `AbsintheClient.WebSocket.Reply` carries:
+
+         # before
+         ref = AbsintheClient.WebSocket.push(ws, doc)
+         AbsintheClient.WebSocket.await_reply(ref)
+
+         # after
+         push = AbsintheClient.WebSocket.push(ws, doc)
+         AbsintheClient.WebSocket.await_reply(push)
+
+     When `await_reply/2` times out, the socket cancels the push: a late
+     reply is discarded, and a subscription it created is unsubscribed
+     at once, so a timed-out subscription never delivers data.
+
 ### Potential breaking changes
 
   * `AbsintheClient.WebSocket.connect/1,2` return a `pid()` instead of a
@@ -163,8 +181,12 @@ instead of a generated atom.
     `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the server does
     not reply in time, and `AbsintheClient.WebSocket.await_reply!/2`
     raises it instead of a `RuntimeError`.
+  * `AbsintheClient.WebSocket.push/2` and the body of an `async: true`
+    response are an `AbsintheClient.WebSocket.Push` instead of a
+    reference, and `AbsintheClient.WebSocket.await_reply/2` takes it.
   * A reply that arrives after `AbsintheClient.WebSocket.await_reply/2`
-    timed out is discarded instead of delivered to the caller's mailbox.
+    timed out is discarded instead of delivered to the caller's mailbox,
+    and a subscription it created is unsubscribed.
   * `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
   * Elixir v1.15 or later is required.
   * Req v0.7 or later is required.
@@ -185,6 +207,9 @@ instead of a generated atom.
     `{:error, %AbsintheClient.WebSocket.Closed{}}` as soon as the socket
     exits instead of waiting for the timeout.
   * Adds `AbsintheClient.WebSocket.Timeout`.
+  * Adds `AbsintheClient.WebSocket.Push`, and cancels a push when
+    `AbsintheClient.WebSocket.await_reply/2` times out, so a late
+    subscription reply is unsubscribed instead of delivering data.
   * Registers sockets in a `Registry` instead of creating an atom per
     connection.
   * Sends `AbsintheClient.WebSocket.Closed` from `terminate/2`, so a

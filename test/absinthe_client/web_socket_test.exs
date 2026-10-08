@@ -3,7 +3,7 @@ defmodule AbsintheClient.WebSocketTest do
   import ExUnit.CaptureLog
   require Slipstream.Signatures
 
-  doctest AbsintheClient.WebSocket.Push
+  doctest AbsintheClient.WebSocket.Op
 
   defmodule Listener do
     use GenServer
@@ -40,7 +40,7 @@ defmodule AbsintheClient.WebSocketTest do
     client =
       start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
-    ref = AbsintheClient.WebSocket.push(client, {query, %{"repository" => "ABSINTHE"}})
+    %{ref: ref} = AbsintheClient.WebSocket.push(client, {query, %{"repository" => "ABSINTHE"}})
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
@@ -53,7 +53,7 @@ defmodule AbsintheClient.WebSocketTest do
     client =
       start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
-    ref = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
+    %{ref: ref} = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
@@ -68,7 +68,7 @@ defmodule AbsintheClient.WebSocketTest do
       }
     }
 
-    ref =
+    %{ref: ref} =
       AbsintheClient.WebSocket.push(
         client,
         """
@@ -226,7 +226,7 @@ defmodule AbsintheClient.WebSocketTest do
 
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
 
-    ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+    %{ref: ref} = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
 
     # The first attempt is rejected and the retry waits about a second.
     assert_receive %AbsintheClient.WebSocket.Reply{ref: ^ref, status: :ok}, 5_000
@@ -315,10 +315,10 @@ defmodule AbsintheClient.WebSocketTest do
     monitor_ref = Process.monitor(ws)
     assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
 
-    ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
 
     assert {:error, %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: ^ref, reason: :noproc}} =
-             AbsintheClient.WebSocket.await_reply(ref, 1_000)
+             AbsintheClient.WebSocket.await_reply(push, 1_000)
   end
 
   @tag :capture_log

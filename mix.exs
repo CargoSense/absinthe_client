@@ -79,6 +79,7 @@ defmodule AbsintheClient.MixProject do
           AbsintheClient.Subscription,
           AbsintheClient.WebSocket.Closed,
           AbsintheClient.WebSocket.Message,
+          AbsintheClient.WebSocket.Push,
           AbsintheClient.WebSocket.Reply,
           AbsintheClient.WebSocket.Timeout
         ]

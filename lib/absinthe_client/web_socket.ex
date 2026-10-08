@@ -50,7 +50,7 @@ defmodule AbsintheClient.WebSocket do
 
   """
   alias AbsintheClient.Utils
-  alias AbsintheClient.WebSocket.{AbsintheWs, Closed, Config, Push, Reply, Timeout}
+  alias AbsintheClient.WebSocket.{AbsintheWs, Closed, Config, Op, Push, Reply, Timeout}
   alias Req.Request
 
   @type graphql :: String.t() | {String.t(), nil | map()}
@@ -366,12 +366,12 @@ defmodule AbsintheClient.WebSocket do
   @spec run(Request.t()) :: {Request.t(), Req.Response.t() | Exception.t()}
   def run(%Request{} = request) do
     receive_timeout = Map.get(request.options, :receive_timeout, @default_receive_timeout)
-    ref = push(request.options.web_socket, request.options.graphql)
+    push = push(request.options.web_socket, request.options.graphql)
 
     case Map.fetch(request.options, :async) do
-      {:ok, true} -> {request, Req.Response.new(body: ref)}
-      {:ok, false} -> await_reply(request, ref, receive_timeout)
-      :error -> await_reply(request, ref, receive_timeout)
+      {:ok, true} -> {request, Req.Response.new(body: push)}
+      {:ok, false} -> await_reply(request, push, receive_timeout)
+      :error -> await_reply(request, push, receive_timeout)
     end
   end
 
@@ -391,20 +391,20 @@ defmodule AbsintheClient.WebSocket do
   @doc """
   Pushes a `query` to the server via the given `socket`.
 
-  Returns a reference to pass to `await_reply/2`. The reference is also
-  a monitor on the socket. The reply removes the monitor. If the socket
-  exits before it replies, the caller receives a
+  Returns an `AbsintheClient.WebSocket.Push` to pass to `await_reply/2`.
+  Its ref is also a monitor on the socket. The reply removes the
+  monitor. If the socket exits before it replies, the caller receives a
   `{:DOWN, ref, :process, socket, reason}` message instead, which
   `await_reply/2` returns as `{:error, %AbsintheClient.WebSocket.Closed{}}`.
 
   ## Examples
 
-      iex> {:ok, req} = AbsintheClient.WebSocket.connect(url: "ws://localhost:4002/socket/websocket")
-      iex> ref = AbsintheClient.WebSocket.push(req, ~S|{ __type(name: "Repo") { name } }|)
-      iex> AbsintheClient.WebSocket.await_reply!(ref).payload["data"]
+      iex> {:ok, ws} = AbsintheClient.WebSocket.connect(url: "ws://localhost:4002/socket/websocket")
+      iex> push = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+      iex> AbsintheClient.WebSocket.await_reply!(push).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  @spec push(request_or_socket :: Request.t() | web_socket(), graphql()) :: reference()
+  @spec push(request_or_socket :: Request.t() | web_socket(), graphql()) :: Push.t()
   def push(request_or_socket, graphql)
 
   def push(%Request{} = req, graphql) do
@@ -417,14 +417,10 @@ defmodule AbsintheClient.WebSocket do
 
     # The push ref is a monitor with a reply alias. The reply removes the
     # monitor, so only a socket that exits before it replies sends a DOWN.
-    send(socket, %Push{
-      event: "doc",
-      params: params,
-      pid: self(),
-      ref: ref = Process.monitor(socket, alias: :reply_demonitor)
-    })
+    ref = Process.monitor(socket, alias: :reply_demonitor)
+    send(socket, %Op{event: "doc", params: params, pid: self(), ref: ref})
 
-    ref
+    %Push{socket: socket, ref: ref}
   end
 
   @doc """
@@ -433,8 +429,11 @@ defmodule AbsintheClient.WebSocket do
   Returns `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the
   server does not reply within `timeout`, and
   `{:error, %AbsintheClient.WebSocket.Closed{}}` when the socket stops
-  before the server replies or had already stopped. A reply that
-  arrives after the timeout is discarded.
+  before the server replies or had already stopped.
+
+  After a timeout the push is cancelled: a reply that arrives later is
+  discarded, and if that reply created a subscription the socket
+  unsubscribes it at once, so no data is ever delivered for it.
 
   ## Examples
 
@@ -445,15 +444,15 @@ defmodule AbsintheClient.WebSocket do
       iex> reply.payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  @spec await_reply(Req.Response.t() | reference(), non_neg_integer()) ::
+  @spec await_reply(Push.t() | Req.Response.t(), non_neg_integer()) ::
           {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, Timeout.t() | Closed.t()}
-  def await_reply(response_or_ref, timeout \\ 5000)
+  def await_reply(push_or_response, timeout \\ 5000)
 
-  def await_reply(%Req.Response{body: ref}, timeout) when is_reference(ref) do
-    await_reply(ref, timeout)
+  def await_reply(%Req.Response{body: %Push{} = push}, timeout) do
+    await_reply(push, timeout)
   end
 
-  def await_reply(ref, timeout) when is_reference(ref) do
+  def await_reply(%Push{socket: socket, ref: ref}, timeout) do
     receive do
       %Reply{ref: ^ref} = reply ->
         {:ok, reply}
@@ -466,14 +465,26 @@ defmodule AbsintheClient.WebSocket do
         {:error, Closed.from_exit(socket, ref, reason)}
     after
       timeout ->
-        # Removing the monitor also removes the alias, so a late reply is dropped.
+        # Removing the monitor also removes the alias, so a late reply is
+        # dropped. A reply that slipped into the mailbox first is removed
+        # too, and the socket undoes whatever the push achieved.
         Process.demonitor(ref, [:flush])
+        flush_reply(ref)
+        send(socket, {:cancel, ref})
         {:error, %Timeout{ref: ref, timeout: timeout}}
     end
   end
 
-  defp await_reply(%Request{} = req, ref, receive_timeout) do
-    case await_reply(ref, receive_timeout) do
+  defp flush_reply(ref) do
+    receive do
+      %Reply{ref: ^ref} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp await_reply(%Request{} = req, push, receive_timeout) do
+    case await_reply(push, receive_timeout) do
       {:ok, reply} -> {req, reply_response(req, reply)}
       {:error, exception} -> {req, exception}
     end
@@ -494,16 +505,16 @@ defmodule AbsintheClient.WebSocket do
       iex> AbsintheClient.WebSocket.await_reply!(res).payload["data"]
       %{"__type" => %{"name" => "Repo"}}
   """
-  @spec await_reply!(Req.Response.t() | reference(), non_neg_integer()) ::
+  @spec await_reply!(Push.t() | Req.Response.t(), non_neg_integer()) ::
           AbsintheClient.WebSocket.Reply.t()
-  def await_reply!(response_or_ref, timeout \\ 5000)
+  def await_reply!(push_or_response, timeout \\ 5000)
 
-  def await_reply!(%Req.Response{body: ref}, timeout) when is_reference(ref) do
-    await_reply!(ref, timeout)
+  def await_reply!(%Req.Response{body: %Push{} = push}, timeout) do
+    await_reply!(push, timeout)
   end
 
-  def await_reply!(ref, timeout) when is_reference(ref) do
-    case await_reply(ref, timeout) do
+  def await_reply!(%Push{} = push, timeout) do
+    case await_reply(push, timeout) do
       {:ok, reply} -> reply
       {:error, exception} -> raise exception
     end

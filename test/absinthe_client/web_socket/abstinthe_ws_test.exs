@@ -21,7 +21,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    _ref = AbsintheClient.WebSocket.push(client, {msg, nil})
+    _push = AbsintheClient.WebSocket.push(client, {msg, nil})
     assert_push @control_topic, "doc", %{query: ^msg}
   end
 
@@ -29,7 +29,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    _ref = AbsintheClient.WebSocket.push(client, {msg, %{"foo" => "bar"}})
+    _push = AbsintheClient.WebSocket.push(client, {msg, %{"foo" => "bar"}})
     assert_push @control_topic, "doc", %{query: ^msg, variables: %{"foo" => "bar"}}
   end
 
@@ -37,7 +37,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert ref = AbsintheClient.WebSocket.push(client, msg)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, msg)
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :this_is_not_a_real_result})
 
@@ -95,7 +95,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
     # client: sends subscription to the server
     query = "msg:#{System.unique_integer()}"
-    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, query)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
@@ -289,10 +289,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    ref = AbsintheClient.WebSocket.push(client, msg)
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, msg)
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :result})
-    assert {:ok, %Reply{ref: ^ref}} = AbsintheClient.WebSocket.await_reply(ref)
+    assert {:ok, %Reply{ref: ^ref}} = AbsintheClient.WebSocket.await_reply(push)
 
     monitor_ref = Process.monitor(client)
     Process.exit(client, :kill)
@@ -305,10 +305,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    ref = AbsintheClient.WebSocket.push(client, msg)
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, msg)
 
     assert {:error, %AbsintheClient.WebSocket.Timeout{ref: ^ref, timeout: 0}} =
-             AbsintheClient.WebSocket.await_reply(ref, 0)
+             AbsintheClient.WebSocket.await_reply(push, 0)
 
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :late})
@@ -317,12 +317,58 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     refute_received %Reply{ref: ^ref}
   end
 
+  test "a subscription created after the timeout is unsubscribed at once" do
+    client = start_client!()
+    query = subscription_query()
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, push_ref
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{}} =
+             AbsintheClient.WebSocket.await_reply(push, 0)
+
+    sub_id = sub_id(client)
+    reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id}})
+
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_id}
+    refute_received %Reply{ref: ^ref}
+    assert %{assigns: %{active_subscriptions: active}} = :sys.get_state(client)
+    refute Map.has_key?(active, sub_id)
+  end
+
+  test "a push that timed out before it was sent is dropped" do
+    client =
+      start_supervised!(
+        {AbsintheWs, parent: self(), config: [uri: "wss://localhost", test_mode?: true]}
+      )
+
+    push = AbsintheClient.WebSocket.push(client, "msg")
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{}} =
+             AbsintheClient.WebSocket.await_reply(push, 0)
+
+    assert %{assigns: %{pending: []}} = :sys.get_state(client)
+  end
+
+  test "a cancelled push unsubscribes the subscription it already created" do
+    client = start_client!()
+    sub_id = subscribe!(client)
+    %{assigns: %{active_subscriptions: %{^sub_id => %{ref: ref}}}} = :sys.get_state(client)
+
+    send(client, {:cancel, ref})
+
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_id}
+    assert %{assigns: %{active_subscriptions: active, pids: pids}} = :sys.get_state(client)
+    refute Map.has_key?(active, sub_id)
+    refute sub_id in Map.get(pids, self(), [])
+  end
+
   test "await_reply!/2 raises when the server does not reply in time" do
     client = start_client!()
-    ref = AbsintheClient.WebSocket.push(client, "msg")
+    push = AbsintheClient.WebSocket.push(client, "msg")
 
     assert_raise AbsintheClient.WebSocket.Timeout, ~r/no reply/, fn ->
-      AbsintheClient.WebSocket.await_reply!(ref, 0)
+      AbsintheClient.WebSocket.await_reply!(push, 0)
     end
   end
 
@@ -340,7 +386,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     monitor_ref = Process.monitor(client)
 
     query = subscription_query()
-    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, query)
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
     reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id(client)}})
     assert_receive %Reply{ref: ^ref, status: :ok}
@@ -368,13 +414,13 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!([uri: "wss://localhost"], max_rejections: 1)
 
     query = subscription_query()
-    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert %{ref: ref} = push = AbsintheClient.WebSocket.push(client, query)
     assert_push @control_topic, "doc", %{query: ^query}, _push_ref
 
     disconnect(client, @rejection)
 
     assert {:error, %Closed{socket: ^client, ref: ^ref, reason: @rejected}} =
-             AbsintheClient.WebSocket.await_reply(ref)
+             AbsintheClient.WebSocket.await_reply(push)
 
     assert_receive %Closed{socket: ^client, ref: nil, reason: @rejected}
     refute_received %Closed{ref: ^ref}
@@ -411,7 +457,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
   defp subscribe!(client, query \\ subscription_query()) do
     # client: sends subscription to the server
-    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, query)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref

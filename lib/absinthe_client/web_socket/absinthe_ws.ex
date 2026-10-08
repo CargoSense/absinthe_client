@@ -2,7 +2,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @moduledoc false
   use Slipstream, restart: :temporary
   require Logger
-  alias AbsintheClient.WebSocket.{Closed, Config, Push, Reply}
+  alias AbsintheClient.WebSocket.{Closed, Config, Op, Reply}
   alias AbsintheClient.WebSocket.Config.Source
 
   @control_topic "__absinthe__:control"
@@ -165,7 +165,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def handle_message(topic, "subscription:data" = event, %{"result" => payload}, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
-      {:ok, %Push{ref: ref, pid: pid}} ->
+      {:ok, %Op{ref: ref, pid: pid}} ->
         message = %AbsintheClient.WebSocket.Message{
           topic: topic,
           event: event,
@@ -187,8 +187,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def handle_reply(push_ref, result, socket) do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
-      {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
-        if is_reference(push.ref) and push.pushed_counter == 1,
+      {%Op{pid: pid} = push, assigns} when is_pid(pid) ->
+        if is_reference(push.ref) and push.pushed_counter == 1 and not push.cancelled,
           do: send(reply_to(push), reply(push, push_ref, result))
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
@@ -206,10 +206,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   # A document ref is a reply alias, so the reply also removes the caller's
   # monitor. Unsubscribe pushes share one plain ref, so they reply to the pid.
-  defp reply_to(%Push{event: "doc", ref: ref}) when is_reference(ref), do: ref
-  defp reply_to(%Push{pid: pid}), do: pid
+  defp reply_to(%Op{event: "doc", ref: ref}) when is_reference(ref), do: ref
+  defp reply_to(%Op{pid: pid}), do: pid
 
-  defp reply(%Push{} = push, push_ref, result),
+  defp reply(%Op{} = push, push_ref, result),
     do: reply(%Reply{event: push.event, ref: push.ref, push_ref: push_ref}, result)
 
   defp reply(%Reply{} = reply, :ok), do: %{reply | status: :ok, payload: nil}
@@ -237,6 +237,16 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     socket
   end
 
+  # The caller gave up on the push before the subscription existed, so it
+  # is undone at once instead of forwarding data nobody can unsubscribe.
+  defp maybe_update_subscriptions(
+         socket,
+         %{event: "doc", cancelled: true, pid: pid},
+         {:ok, %{"subscriptionId" => sub_id}}
+       ) do
+    push_messages(socket, [unsubscribe(sub_id, pid, nil)])
+  end
+
   defp maybe_update_subscriptions(
          socket,
          %{event: "doc", pid: pid} = push,
@@ -254,7 +264,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   defp maybe_update_subscriptions(socket, _, _), do: socket
 
   @impl Slipstream
-  def handle_info(%Push{pid: pid, event: event} = push, socket)
+  def handle_info(%Op{pid: pid, event: event} = push, socket)
       when is_pid(pid) and event == "doc" do
     {:noreply, socket |> update(:pending, &[push | &1]) |> push_messages()}
   end
@@ -265,21 +275,35 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
     sub_ids = sub_ids || []
 
-    unsubscribes =
-      Enum.map(sub_ids, fn sub_id ->
-        Push.new(
-          event: "unsubscribe",
-          params: %{"subscriptionId" => sub_id},
-          pid: pid,
-          ref: ref_or_nil
-        )
-      end)
+    unsubscribes = Enum.map(sub_ids, &unsubscribe(&1, pid, ref_or_nil))
 
     socket =
       socket
       |> push_messages(unsubscribes)
       |> assign(:pids, pids)
       |> update(:active_subscriptions, &Map.drop(&1, sub_ids))
+
+    {:noreply, socket}
+  end
+
+  # The caller timed out waiting for this push. An unsent push is dropped,
+  # an inflight push is marked so its reply is not forwarded, and a
+  # subscription it already created is unsubscribed.
+  @impl Slipstream
+  def handle_info({:cancel, ref}, socket) do
+    {cancelled, active} =
+      Enum.split_with(socket.assigns.active_subscriptions, fn {_, op} -> op.ref == ref end)
+
+    sub_ids = Enum.map(cancelled, fn {sub_id, _} -> sub_id end)
+    unsubscribes = Enum.map(cancelled, fn {sub_id, op} -> unsubscribe(sub_id, op.pid, nil) end)
+
+    socket =
+      socket
+      |> update(:pending, &Enum.reject(&1, fn op -> op.ref == ref end))
+      |> update(:inflight, &Map.new(&1, fn {k, op} -> {k, cancel_op(op, ref)} end))
+      |> assign(:active_subscriptions, Map.new(active))
+      |> update(:pids, &Map.new(&1, fn {pid, ids} -> {pid, ids -- sub_ids} end))
+      |> push_messages(unsubscribes)
 
     {:noreply, socket}
   end
@@ -326,6 +350,13 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     {:noreply, socket}
   end
 
+  defp cancel_op(%Op{ref: ref} = op, ref), do: %{op | cancelled: true}
+  defp cancel_op(op, _ref), do: op
+
+  defp unsubscribe(sub_id, pid, ref) do
+    Op.new(event: "unsubscribe", params: %{"subscriptionId" => sub_id}, pid: pid, ref: ref)
+  end
+
   defp push_messages(%{assigns: %{channel_connected: true}} = socket) do
     %{pending: pending_pushes} = socket.assigns
 
@@ -340,7 +371,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   defp push_messages(socket, []), do: socket
 
-  defp push_messages(socket, [%Push{} | _] = messages) do
+  defp push_messages(socket, [%Op{} | _] = messages) do
     update(socket, :inflight, fn inflight ->
       Enum.reduce(messages, inflight, fn op, acc ->
         {:ok, push_ref} = push_message(socket, op)
@@ -357,7 +388,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     %{active_subscriptions: subs, pending: pending} = socket.assigns
 
     new_pending =
-      Enum.reduce(subs, pending, fn {_, %Push{} = push}, acc ->
+      Enum.reduce(subs, pending, fn {_, %Op{} = push}, acc ->
         [push | acc]
       end)
 
@@ -581,7 +612,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
     # An orderly close moves the active subscriptions to pending first, but
     # a crash skips that step, so they are notified from here as well.
-    for {_sub_id, %Push{pid: pid, ref: ref}} <- active,
+    for {_sub_id, %Op{pid: pid, ref: ref}} <- active,
         is_pid(pid),
         do: send(pid, %Closed{socket: self(), ref: ref, reason: reason})
 
@@ -589,7 +620,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       Enum.map(pending, &{&1, &1.pushed_counter == 0}) ++
         Enum.map(Map.values(inflight), &{&1, &1.pushed_counter == 1})
 
-    for {%Push{pid: pid, ref: ref} = push, awaiting_reply?} <- pushes, is_pid(pid) do
+    for {%Op{pid: pid, ref: ref} = push, awaiting_reply?} <- pushes, is_pid(pid) do
       cond do
         awaiting_reply? and is_reference(ref) ->
           send(reply_to(push), %Closed{socket: self(), ref: ref, reason: reason})
