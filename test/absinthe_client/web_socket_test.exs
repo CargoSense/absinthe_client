@@ -117,6 +117,15 @@ defmodule AbsintheClient.WebSocketTest do
              "super-secret-token"
   end
 
+  test "connect/2 rejects an invalid :reconnect option" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:error, %ArgumentError{message: message}} =
+             AbsintheClient.WebSocket.connect(req, reconnect: :never)
+
+    assert message =~ "expected :reconnect to be a boolean or a 1-arity function"
+  end
+
   test "connect/2 starts a socket per URL" do
     req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
 
@@ -160,7 +169,8 @@ defmodule AbsintheClient.WebSocketTest do
     assert {:ok, ws} =
              AbsintheClient.WebSocket.connect(req,
                url: "/auth-socket/websocket",
-               max_rejections: 2
+               max_rejections: 2,
+               reconnect_delay: 10
              )
 
     monitor_ref = Process.monitor(ws)

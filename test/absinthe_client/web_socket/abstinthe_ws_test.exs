@@ -143,6 +143,44 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   end
 
   @tag :capture_log
+  test "waits for the reconnect delay before each reconnect attempt" do
+    test_pid = self()
+
+    delay = fn count ->
+      send(test_pid, {:reconnect_delay, count})
+      1
+    end
+
+    client =
+      start_client!([uri: "wss://localhost"], max_rejections: 3, reconnect_delay: delay)
+
+    disconnect(client, @rejection)
+    assert_receive {:reconnect_delay, 0}
+
+    disconnect(client, @rejection)
+    assert_receive {:reconnect_delay, 1}
+  end
+
+  test "the reconnect delay also applies to dropped connections" do
+    test_pid = self()
+
+    delay = fn count ->
+      send(test_pid, {:reconnect_delay, count})
+      1
+    end
+
+    client = start_client!([uri: "wss://localhost"], reconnect_delay: delay)
+
+    disconnect(client, :closed)
+    assert_receive {:reconnect_delay, 0}
+    connect_and_assert_join client, @control_topic, %{}, :ok
+
+    # A successful connection resets the attempt count.
+    disconnect(client, :closed)
+    assert_receive {:reconnect_delay, 0}
+  end
+
+  @tag :capture_log
   test "a 429 response sets the delay from its Retry-After header" do
     client = start_client!([uri: "wss://localhost"], max_rejections: 2)
 
@@ -159,6 +197,38 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
       end)
 
     assert log =~ "rejected with status 429, will retry in 7000ms, 1 attempt left"
+  end
+
+  @tag :capture_log
+  test "reconnect: false stops the socket on the first disconnect" do
+    client = start_client!([uri: "wss://localhost"], reconnect: false)
+    monitor_ref = Process.monitor(client)
+
+    log =
+      capture_log(fn ->
+        disconnect(client, :closed)
+        assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, :closed}}}
+      end)
+
+    assert log =~ "closed without reconnecting"
+    assert_received %Closed{socket: ^client, ref: nil, reason: :closed}
+  end
+
+  @tag :capture_log
+  test "a reconnect function decides per disconnect reason" do
+    client =
+      start_client!([uri: "wss://localhost", reconnect_after_msec: [1]],
+        reconnect: &match?({:error, _}, &1)
+      )
+
+    monitor_ref = Process.monitor(client)
+
+    disconnect(client, {:error, %Mint.TransportError{reason: :econnrefused}})
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    refute_received {:DOWN, ^monitor_ref, :process, ^client, _}
+
+    disconnect(client, :closed)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, :closed}}}
   end
 
   test "a reply removes the caller's monitor on the socket" do

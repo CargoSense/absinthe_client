@@ -21,6 +21,16 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     * `:max_rejections` - Optional. Consecutive rejected connection
       attempts before the socket stops. Defaults to `5`.
 
+    * `:reconnect_delay` - Optional. Milliseconds to wait before a
+      reconnect attempt, or a function of the consecutive attempt count
+      (starting at 0) that returns them. Defaults to Slipstream's backoff
+      after a transport failure and to exponential backoff with jitter
+      after a rejection.
+
+    * `:reconnect` - Optional. `true` to reconnect after a disconnect,
+      `false` to stop on the first one, or a function of the disconnect
+      reason that returns a boolean. Defaults to `true`.
+
     * `:name` - Optional. The name of the socket process.
 
   ## Examples
@@ -56,6 +66,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
         parent_ref: parent_ref,
         request: source(Keyword.get(options, :request)),
         max_rejections: Keyword.get(options, :max_rejections, 5),
+        reconnect_delay: Keyword.get(options, :reconnect_delay),
+        reconnect: Keyword.get(options, :reconnect, true),
         rejections: 0,
         pids: %{},
         channel_connected: false,
@@ -79,20 +91,25 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       |> assign(:channel_connected, false)
       |> enqueue_active_subscriptions()
 
-    if rejection?(reason) do
-      socket = update(socket, :rejections, &(&1 + 1))
-      %{rejections: rejections, max_rejections: max_rejections} = socket.assigns
-
-      if rejections >= max_rejections do
+    cond do
+      not reconnect?(socket, reason) ->
         close(socket, reason)
-      else
+
+      rejection?(reason) ->
+        socket = update(socket, :rejections, &(&1 + 1))
+        %{rejections: rejections, max_rejections: max_rejections} = socket.assigns
+
+        if rejections >= max_rejections do
+          close(socket, reason)
+        else
+          {delay, socket} = reconnect_delay(socket, reason)
+          log_rejection(reason, delay, max_rejections - rejections)
+          schedule_reconnect(socket, delay)
+        end
+
+      true ->
         {delay, socket} = reconnect_delay(socket, reason)
-        log_rejection(reason, delay, max_rejections - rejections)
         schedule_reconnect(socket, delay)
-      end
-    else
-      {delay, socket} = reconnect_delay(socket, reason)
-      schedule_reconnect(socket, delay)
     end
   end
 
@@ -297,6 +314,13 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     assign(socket, active_subscriptions: %{}, pending: new_pending)
   end
 
+  # The same switch as Req's `retry: false`: the socket stops on the first
+  # disconnect instead of reconnecting.
+  defp reconnect?(%{assigns: %{reconnect: fun}}, reason) when is_function(fun, 1),
+    do: fun.(reason) == true
+
+  defp reconnect?(%{assigns: %{reconnect: reconnect}}, _reason), do: reconnect == true
+
   # Only a reachable server that refuses the connection, or a request that
   # cannot be built, counts toward the limit. Transport errors retry forever.
   defp rejection?({:error, {:upgrade_failure, %{status_code: status}}}), do: status in 400..499
@@ -310,18 +334,38 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     {:ok, socket}
   end
 
-  # A transport failure follows Slipstream's backoff. A rejection follows the
-  # Req retry backoff: the delay doubles from one second with jitter, and a
+  # The same knob as Req's :retry_delay. Without it a transport failure
+  # follows Slipstream's backoff and a rejection follows the Req retry
+  # backoff: the delay doubles from one second with jitter, and a
   # Retry-After header wins.
   defp reconnect_delay(socket, reason) do
     {slipstream_delay, socket} = Slipstream.Socket.next_reconnect_time(socket)
 
     delay =
-      if rejection?(reason),
-        do: retry_after(reason) || exp_backoff_with_jitter(socket.assigns.rejections - 1),
-        else: slipstream_delay
+      case socket.assigns.reconnect_delay do
+        nil -> default_delay(socket, reason, slipstream_delay)
+        delay when is_integer(delay) and delay >= 0 -> delay
+        fun when is_function(fun, 1) -> custom_delay(fun, socket.reconnect_counter - 1)
+      end
 
     {delay, socket}
+  end
+
+  defp default_delay(socket, reason, slipstream_delay) do
+    if rejection?(reason),
+      do: retry_after(reason) || exp_backoff_with_jitter(socket.assigns.rejections - 1),
+      else: slipstream_delay
+  end
+
+  defp custom_delay(fun, count) do
+    case fun.(count) do
+      delay when is_integer(delay) and delay >= 0 ->
+        delay
+
+      other ->
+        raise ArgumentError,
+              "expected :reconnect_delay function to return a non-negative integer, got: #{inspect(other)}"
+    end
   end
 
   defp retry_after({:error, {:upgrade_failure, %{status_code: 429, resp_headers: headers}}}) do
@@ -347,6 +391,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   defp describe({:error, %{__exception__: true} = exception}),
     do: "connection failed: (#{inspect(exception.__struct__)}) #{Exception.message(exception)}"
+
+  defp closed_because(0), do: "closed without reconnecting"
+  defp closed_because(rejections), do: "closed after #{rejections} rejected connection attempts"
 
   defp source(nil), do: nil
   defp source(%Req.Request{} = request), do: Source.new(request)
@@ -374,7 +421,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       socket.assigns
 
     Logger.warning(
-      "#{inspect(__MODULE__)} closed after #{rejections} rejected connection attempts, got: #{inspect(reason)}"
+      "#{inspect(__MODULE__)} #{closed_because(rejections)}, got: #{inspect(reason)}"
     )
 
     pushes =

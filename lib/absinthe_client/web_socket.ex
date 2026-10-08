@@ -110,6 +110,20 @@ defmodule AbsintheClient.WebSocket do
       socket stops. Defaults to `5`. Refer to the Token refresh section
       for more information.
 
+    * `:reconnect_delay` - Optional. The time in milliseconds to wait
+      before a reconnect attempt, or a function that receives the
+      number of consecutive attempts (starting at `0`) and returns it,
+      the same as `:retry_delay` for `Req.Steps.retry/1`. By default a
+      transport failure follows Slipstream's backoff and a rejected
+      connection follows exponential backoff with jitter. Refer to the
+      Token refresh section for more information.
+
+    * `:reconnect` - Optional. Whether to reconnect after a disconnect.
+      `true` (default) retries as described in the Token refresh
+      section. `false` stops the socket on the first disconnect of any
+      kind, the same as `retry: false` for `Req.Steps.retry/1`. A
+      function receives the disconnect reason and returns a boolean.
+
     * `:parent` - pid of the process starting the connection.
       The socket monitors this process and shuts down when
       the parent process exits. Defaults to `self()`.
@@ -149,6 +163,16 @@ defmodule AbsintheClient.WebSocket do
   subscriber, returns `{:error, {:closed, reason}}` from
   `await_reply/2` for any pending operation, and stops. Calling
   `connect/2` again starts a new socket.
+
+  Set `reconnect: false` to stop on the first disconnect instead, or
+  pass a function to decide per disconnect reason:
+
+      AbsintheClient.WebSocket.connect(req,
+        reconnect: fn
+          {:error, {:upgrade_failure, %{status_code: 401}}} -> false
+          _reason -> true
+        end
+      )
 
   ## Examples
 
@@ -229,7 +253,7 @@ defmodule AbsintheClient.WebSocket do
   def connect(%Request{} = request, options) when is_list(options) do
     request =
       request
-      |> Request.register_options([:parent, :max_rejections])
+      |> Request.register_options([:parent, :max_rejections, :reconnect_delay, :reconnect])
       |> Req.merge([url: @default_socket_url] ++ options)
 
     parent = Map.get(request.options, :parent, self())
@@ -248,6 +272,8 @@ defmodule AbsintheClient.WebSocket do
        config: config.slipstream,
        request: request,
        max_rejections: config.max_rejections,
+       reconnect_delay: config.reconnect_delay,
+       reconnect: config.reconnect,
        name: name}
 
     case DynamicSupervisor.start_child(AbsintheClient.SocketSupervisor, child_spec) do

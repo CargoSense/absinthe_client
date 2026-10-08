@@ -6,9 +6,11 @@ defmodule AbsintheClient.WebSocket.Config do
   @type t :: %__MODULE__{
           key: term(),
           max_rejections: pos_integer(),
+          reconnect_delay: nil | non_neg_integer() | (non_neg_integer() -> non_neg_integer()),
+          reconnect: boolean() | (term() -> boolean()),
           slipstream: keyword()
         }
-  defstruct [:key, :max_rejections, :slipstream]
+  defstruct [:key, :max_rejections, :reconnect_delay, :slipstream, reconnect: true]
 
   @default_max_rejections 5
 
@@ -50,19 +52,31 @@ defmodule AbsintheClient.WebSocket.Config do
       ]
     ]
 
-    case Slipstream.Configuration.validate(slipstream) do
-      {:ok, _} ->
-        config = %__MODULE__{
-          key: key,
-          max_rejections: Map.get(req.options, :max_rejections, @default_max_rejections),
-          slipstream: slipstream
-        }
+    with {:ok, _} <- Slipstream.Configuration.validate(slipstream),
+         {:ok, reconnect} <- validate_reconnect(Map.get(req.options, :reconnect, true)) do
+      config = %__MODULE__{
+        key: key,
+        max_rejections: Map.get(req.options, :max_rejections, @default_max_rejections),
+        reconnect_delay: Map.get(req.options, :reconnect_delay),
+        reconnect: reconnect,
+        slipstream: slipstream
+      }
 
-        {req, Req.Response.new(body: config)}
-
-      {:error, exception} ->
-        {req, exception}
+      {req, Req.Response.new(body: config)}
+    else
+      {:error, exception} -> {req, exception}
     end
+  end
+
+  defp validate_reconnect(reconnect) when is_boolean(reconnect) or is_function(reconnect, 1),
+    do: {:ok, reconnect}
+
+  defp validate_reconnect(other) do
+    {:error,
+     %ArgumentError{
+       message:
+         "expected :reconnect to be a boolean or a 1-arity function, got: #{inspect(other)}"
+     }}
   end
 
   defp put_connect_params(%Request{} = req) do

@@ -11,7 +11,7 @@ defmodule AbsintheClient do
   alias AbsintheClient.{Utils, WebSocket}
   alias Req.Request
 
-  @allowed_options ~w(graphql web_socket async connect_params max_rejections)a
+  @allowed_options ~w(graphql web_socket async connect_params max_rejections reconnect_delay reconnect)a
 
   @default_url "/graphql"
 
@@ -56,6 +56,21 @@ defmodule AbsintheClient do
       server may reject the WebSocket connection before the socket
       stops. The default value is `5`. Refer to
       `AbsintheClient.WebSocket.connect/1` for more information.
+
+    * `:reconnect_delay` - Optional. The time in milliseconds to wait
+      before the WebSocket reconnects, or a function of the attempt
+      count that returns it, the same as `:retry_delay` does for a
+      request. Defaults to Slipstream's backoff after a transport
+      failure and to exponential backoff with jitter after a rejected
+      connection. Refer to `AbsintheClient.WebSocket.connect/1` for
+      more information.
+
+    * `:reconnect` - Optional. Whether the WebSocket reconnects after a
+      disconnect. `false` stops the socket on the first disconnect, the
+      same as `retry: false` does for a request. A function receives
+      the disconnect reason and returns a boolean. The default value is
+      `true`. Refer to `AbsintheClient.WebSocket.connect/1` for more
+      information.
 
   If you want to set any of these options when attaching the plugin,
   pass them as the second argument.

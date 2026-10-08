@@ -66,7 +66,8 @@ end
 defmodule AbsintheClient.WebSocket.Closed do
   @moduledoc """
   Message sent when the WebSocket stops after the server repeatedly
-  rejects the connection.
+  rejects the connection, or after any disconnect when reconnecting is
+  disabled with `reconnect: false`.
 
   The socket sends one message per active subscription to the process
   that created it, and one message with a `nil` ref to the parent
