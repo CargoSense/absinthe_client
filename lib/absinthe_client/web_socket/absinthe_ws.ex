@@ -78,12 +78,21 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       socket
       |> assign(:channel_connected, false)
       |> enqueue_active_subscriptions()
-      |> count_rejection(reason)
 
-    if socket.assigns.rejections >= socket.assigns.max_rejections do
-      close(socket, reason)
+    if rejection?(reason) do
+      socket = update(socket, :rejections, &(&1 + 1))
+      %{rejections: rejections, max_rejections: max_rejections} = socket.assigns
+
+      if rejections >= max_rejections do
+        close(socket, reason)
+      else
+        {delay, socket} = reconnect_delay(socket, reason)
+        log_rejection(reason, delay, max_rejections - rejections)
+        schedule_reconnect(socket, delay)
+      end
     else
-      schedule_reconnect(socket)
+      {delay, socket} = reconnect_delay(socket, reason)
+      schedule_reconnect(socket, delay)
     end
   end
 
@@ -288,38 +297,64 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     assign(socket, active_subscriptions: %{}, pending: new_pending)
   end
 
-  # Only a reachable server that refuses the connection counts toward the limit.
-  defp count_rejection(socket, {:error, {:upgrade_failure, %{status_code: status}}})
-       when status in 400..499 do
-    update(socket, :rejections, &(&1 + 1))
-  end
-
-  defp count_rejection(socket, {:error, %Mint.TransportError{}}), do: socket
-
-  defp count_rejection(socket, {:error, %{__exception__: true}}) do
-    update(socket, :rejections, &(&1 + 1))
-  end
-
-  defp count_rejection(socket, _reason), do: socket
-
-  # Without a request there is nothing to refresh, so Slipstream reconnects
-  # with the config it already holds.
-  defp schedule_reconnect(%{assigns: %{request: nil}} = socket) do
-    case reconnect(socket) do
-      {:ok, socket} -> {:ok, socket}
-      {:error, reason} -> {:stop, reason, socket}
-    end
-  end
+  # Only a reachable server that refuses the connection, or a request that
+  # cannot be built, counts toward the limit. Transport errors retry forever.
+  defp rejection?({:error, {:upgrade_failure, %{status_code: status}}}), do: status in 400..499
+  defp rejection?({:error, %Mint.TransportError{}}), do: false
+  defp rejection?({:error, %{__exception__: true}}), do: true
+  defp rejection?(_reason), do: false
 
   # Slipstream.reconnect/1 re-uses the old config, so the backoff is scheduled by hand.
-  defp schedule_reconnect(socket) do
-    {time, socket} = Slipstream.Socket.next_reconnect_time(socket)
-    Process.send_after(self(), :reconnect, time)
+  defp schedule_reconnect(socket, delay) do
+    Process.send_after(self(), :reconnect, delay)
     {:ok, socket}
   end
 
+  # A transport failure follows Slipstream's backoff. A rejection follows the
+  # Req retry backoff: the delay doubles from one second with jitter, and a
+  # Retry-After header wins.
+  defp reconnect_delay(socket, reason) do
+    {slipstream_delay, socket} = Slipstream.Socket.next_reconnect_time(socket)
+
+    delay =
+      if rejection?(reason),
+        do: retry_after(reason) || exp_backoff_with_jitter(socket.assigns.rejections - 1),
+        else: slipstream_delay
+
+    {delay, socket}
+  end
+
+  defp retry_after({:error, {:upgrade_failure, %{status_code: 429, resp_headers: headers}}}) do
+    Req.Response.get_retry_after(Req.Response.new(status: 429, headers: headers))
+  end
+
+  defp retry_after(_reason), do: nil
+
+  defp exp_backoff_with_jitter(n) do
+    trunc(Integer.pow(2, n) * 1000 * (1 - 0.1 * :rand.uniform()))
+  end
+
+  defp log_rejection(reason, delay, left) do
+    left = if left == 1, do: "1 attempt", else: "#{left} attempts"
+
+    Logger.warning(
+      "#{inspect(__MODULE__)} #{describe(reason)}, will retry in #{delay}ms, #{left} left"
+    )
+  end
+
+  defp describe({:error, {:upgrade_failure, %{status_code: status}}}),
+    do: "connection rejected with status #{status}"
+
+  defp describe({:error, %{__exception__: true} = exception}),
+    do: "connection failed: (#{inspect(exception.__struct__)}) #{Exception.message(exception)}"
+
   defp source(nil), do: nil
   defp source(%Req.Request{} = request), do: Source.new(request)
+
+  # Without a request there is nothing to refresh. Slipstream builds its
+  # struct from the validated options, so the struct converts back to them.
+  defp refresh_config(%{assigns: %{request: nil}, channel_config: config}),
+    do: {:ok, config |> Map.from_struct() |> Map.to_list()}
 
   defp refresh_config(%{assigns: %{request: %Source{request: request}}}) do
     case Config.build(request) do

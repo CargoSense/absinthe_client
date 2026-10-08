@@ -142,6 +142,25 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     refute_received {:DOWN, ^ref, :process, ^client, _}
   end
 
+  @tag :capture_log
+  test "a 429 response sets the delay from its Retry-After header" do
+    client = start_client!([uri: "wss://localhost"], max_rejections: 2)
+
+    log =
+      capture_log(fn ->
+        disconnect(
+          client,
+          {:error,
+           {:upgrade_failure,
+            %{status_code: 429, resp_headers: [{"retry-after", "7"}], reason: nil}}}
+        )
+
+        _ = :sys.get_state(client)
+      end)
+
+    assert log =~ "rejected with status 429, will retry in 7000ms, 1 attempt left"
+  end
+
   test "a reply removes the caller's monitor on the socket" do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"

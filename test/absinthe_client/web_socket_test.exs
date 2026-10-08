@@ -126,6 +126,7 @@ defmodule AbsintheClient.WebSocketTest do
     assert ws != auth_ws
   end
 
+  @tag :capture_log
   test "re-runs the auth function before each connection attempt" do
     calls = start_supervised!({Agent, fn -> 0 end})
 
@@ -144,7 +145,8 @@ defmodule AbsintheClient.WebSocketTest do
 
     ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
 
-    assert_receive %AbsintheClient.WebSocket.Reply{ref: ^ref, status: :ok}, 2_000
+    # The first attempt is rejected and the retry waits about a second.
+    assert_receive %AbsintheClient.WebSocket.Reply{ref: ^ref, status: :ok}, 5_000
     assert Agent.get(calls, & &1) >= 2
   end
 

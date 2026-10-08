@@ -138,12 +138,17 @@ defmodule AbsintheClient.WebSocket do
   The function runs inside the socket process, so it must read the
   token from a shared place such as an `Agent` or ETS table.
 
-  Transport failures retry with backoff until the parent process
-  exits. When the server rejects the connection with an HTTP 4xx
-  status `:max_rejections` times in a row, or the request steps raise,
-  the socket sends an `AbsintheClient.WebSocket.Closed` message to the
-  parent and to each subscriber, returns `{:error, {:closed, reason}}`
-  from `await_reply/2` for any pending operation, and stops. Calling `connect/2` again starts a new socket.
+  Transport failures retry with Slipstream's backoff until the parent
+  process exits. A rejected connection, that is an HTTP 4xx status on
+  the upgrade request or a request step that raises, retries with the
+  same backoff as the `Req.Steps.retry/1` step: about 1s, 2s, 4s, 8s
+  and so on, with jitter. A `Retry-After` header on a 429 response
+  sets the delay instead. Each rejection logs a warning. After
+  `:max_rejections` rejections in a row the socket sends an
+  `AbsintheClient.WebSocket.Closed` message to the parent and to each
+  subscriber, returns `{:error, {:closed, reason}}` from
+  `await_reply/2` for any pending operation, and stops. Calling
+  `connect/2` again starts a new socket.
 
   ## Examples
 

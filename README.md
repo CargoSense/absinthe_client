@@ -98,7 +98,8 @@ req = Req.new(base_url: base_url, auth: auth) |> AbsintheClient.attach()
 ws = AbsintheClient.WebSocket.connect!(req, url: "/socket/websocket")
 ```
 
-If the server keeps rejecting the connection, the socket stops after
+If the server keeps rejecting the connection, the socket retries with
+exponential backoff and stops after
 `:max_rejections` consecutive attempts (default `5`) and sends an
 `AbsintheClient.WebSocket.Closed` message to the parent process and
 to every subscriber. Refer to [`AbsintheClient.WebSocket.connect/1`][websocket]

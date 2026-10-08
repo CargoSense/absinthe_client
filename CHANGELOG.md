@@ -22,7 +22,10 @@ the socket calls it each time it connects:
 The function runs inside the socket process. Read the token from a
 shared place such as an `Agent`, an ETS table, or a token server.
 
-When the server still rejects the connection, the socket gives up after
+When the server still rejects the connection, the socket retries with
+the same exponential backoff with jitter as the `Req.Steps.retry/1`
+step (about 1s, 2s, 4s, 8s, ...), honours a `Retry-After` header on a
+429 response, logs a warning per attempt, and gives up after
 `:max_rejections` consecutive rejections (default `5`). A rejection is
 an HTTP 4xx response to the upgrade request, or a failure to build the
 request, for example when the `:auth` function raises. The socket
