@@ -220,7 +220,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   end
 
   @tag :capture_log
-  test "replies with an error to pushes awaiting a reply when closing" do
+  test "returns a closed error to pushes awaiting a reply when closing" do
     client = start_client!([uri: "wss://localhost"], max_rejections: 1)
 
     query = subscription_query()
@@ -229,7 +229,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
     disconnect(client, @rejection)
 
-    assert_receive %Reply{event: "doc", ref: ^ref, status: :error, payload: @rejection}
+    assert {:error, {:closed, @rejection}} = AbsintheClient.WebSocket.await_reply(ref)
     assert_receive %Closed{socket: ^client, ref: nil, reason: @rejection}
     refute_received %Closed{ref: ^ref}
   end

@@ -267,7 +267,7 @@ defmodule AbsintheClient do
       iex> AbsintheClient.WebSocket.await_reply!(res).payload.__struct__
       AbsintheClient.Subscription
 
-  Repeatedly rejected connections reply with an error and close the socket:
+  Repeatedly rejected connections return an error and close the socket:
 
       iex> req =
       ...>   Req.new(base_url: "http://localhost:4002/", auth: {:bearer, "invalid-token"})
@@ -288,8 +288,10 @@ defmodule AbsintheClient do
       ...>     %{"repository" => "ELIXIR"}
       ...>   }
       ...> )
-      iex> AbsintheClient.WebSocket.await_reply!(res).status
-      :error
+      iex> {:error, {:closed, reason}} = AbsintheClient.WebSocket.await_reply(res)
+      iex> {:error, {:upgrade_failure, %{status_code: status}}} = reason
+      iex> status
+      403
       iex> receive do
       ...>   %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil, reason: reason} ->
       ...>     {:error, {:upgrade_failure, %{status_code: status}}} = reason

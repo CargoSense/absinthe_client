@@ -26,7 +26,7 @@ When the server still rejects the connection, the socket gives up after
 `:max_rejections` consecutive rejections (default `5`). A rejection is
 an HTTP 4xx response to the upgrade request, or a failure to build the
 request, for example when the `:auth` function raises. The socket
-replies with an error to every pending operation, sends an
+returns an error to every pending operation, sends an
 `AbsintheClient.WebSocket.Closed` message to the parent process and to
 each subscriber, and stops. Transport errors, such as a refused
 connection, and 5xx responses are not counted and keep the unbounded
@@ -87,10 +87,11 @@ instead of a generated atom.
      operation is pending, `Req.request/2` returns
      `{:error, %AbsintheClient.WebSocket.Error{reason: {:closed, reason}}}`
      with the disconnect reason, and `Req.request!/2` raises it. Req does
-     not retry this error. `AbsintheClient.WebSocket.await_reply!/2`
-     returns a reply with `status: :error` and the disconnect reason as
-     the payload. Code that treated a timeout as "not authorized" should
-     match on the error instead. A push to a socket that has already
+     not retry this error. `AbsintheClient.WebSocket.await_reply/2`
+     returns `{:error, {:closed, reason}}` with the same reason, and
+     `AbsintheClient.WebSocket.await_reply!/2` raises
+     `AbsintheClient.WebSocket.Error`. Code that treated a timeout as
+     "not authorized" should match on the error instead. A push to a socket that has already
      stopped returns `{:error, %AbsintheClient.WebSocket.Error{}}` from
      `Req.request/2` and `{:error, {:closed, reason}}` from
      `AbsintheClient.WebSocket.await_reply/2`.
@@ -130,8 +131,8 @@ instead of a generated atom.
   * Pending operations receive an error when the socket stops instead of
     timing out. `Req.request/2` returns an
     `AbsintheClient.WebSocket.Error` with the disconnect reason, and
-    `AbsintheClient.WebSocket.await_reply/2` returns a reply with
-    `status: :error`.
+    `AbsintheClient.WebSocket.await_reply/2` returns
+    `{:error, {:closed, reason}}`.
   * `Req.request/2` returns `{:error, %AbsintheClient.WebSocket.Error{}}`
     when the server does not reply in time or the socket exits first.
     `AbsintheClient.WebSocket.await_reply!/2` raises the same exception
