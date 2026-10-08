@@ -1,6 +1,7 @@
 defmodule AbsintheClient.WebSocketTest do
   use ExUnit.Case
   import ExUnit.CaptureLog
+  require Slipstream.Signatures
 
   doctest AbsintheClient.WebSocket.Push
 
@@ -332,6 +333,35 @@ defmodule AbsintheClient.WebSocketTest do
 
     assert {:error, %AbsintheClient.WebSocket.Error{reason: {:closed, :noproc}}} =
              Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+  end
+
+  @tag :capture_log
+  test "a crash unregisters the socket before Closed is sent" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+    monitor_ref = Process.monitor(ws)
+
+    # The handler expects a "result" key, so this event crashes the socket.
+    bad_event = %Slipstream.Events.MessageReceived{
+      topic: "t",
+      event: "subscription:data",
+      payload: %{}
+    }
+
+    send(ws, Slipstream.Signatures.event(bad_event))
+
+    assert_receive %AbsintheClient.WebSocket.Closed{
+      socket: ^ws,
+      ref: nil,
+      reason: {:function_clause, _}
+    }
+
+    assert Registry.keys(AbsintheClient.SocketRegistry, ws) == []
+    assert {:ok, new_ws} = AbsintheClient.WebSocket.connect(req)
+    assert new_ws != ws and Process.alive?(new_ws)
+
+    # The crash report is logged after terminate/2, so wait for the exit.
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:function_clause, _}}
   end
 
   test "monitors parent and exits on down", %{socket_url: socket_url} do

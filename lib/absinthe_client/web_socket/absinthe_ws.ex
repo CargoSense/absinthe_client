@@ -534,10 +534,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   end
 
   defp close(socket, reason) do
-    # Unregister first so a connect/2 in response to Closed starts a new socket.
-    for key <- Registry.keys(AbsintheClient.SocketRegistry, self()),
-        do: Registry.unregister(AbsintheClient.SocketRegistry, key)
-
+    # Unregister as soon as the socket decides to close, so a connect/2 that
+    # races the stop starts a new socket. terminate/2 repeats it for a crash.
+    unregister()
     log_closed(socket, reason)
 
     {:stop, {:shutdown, {:closed, reason}}, socket}
@@ -550,8 +549,21 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   # stop is an exit signal as well.
   @impl Slipstream
   def terminate(reason, socket) do
+    unregister()
     notify_closed(socket, closed_reason(reason))
     disconnect(socket)
+  end
+
+  # Unregister before Closed is sent, so a connect/2 made in response starts
+  # a new socket instead of finding this one still alive in the Registry.
+  # The Registry replaces the key of a dead process on its own, so a second
+  # call after close/2 is harmless.
+  defp unregister do
+    for key <- Registry.keys(AbsintheClient.SocketRegistry, self()),
+        do: Registry.unregister(AbsintheClient.SocketRegistry, key)
+  rescue
+    # The Registry is already down while the application stops.
+    ArgumentError -> :ok
   end
 
   defp closed_reason({:shutdown, {:closed, reason}}), do: reason
