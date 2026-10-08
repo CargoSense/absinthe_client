@@ -3,6 +3,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   use Slipstream, restart: :temporary
   require Logger
   alias AbsintheClient.WebSocket.{Closed, Config, Push, Reply}
+  alias AbsintheClient.WebSocket.Config.Source
 
   @control_topic "__absinthe__:control"
 
@@ -14,7 +15,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     * `:config` - Required. The `Slipstream` connection options.
 
     * `:request` - Optional. The `Req.Request` to re-run before each
-      connection attempt. Defaults to `nil`, which re-uses `:config`.
+      connection attempt. Defaults to `nil`, which reconnects with the
+      same `:config`.
 
     * `:max_rejections` - Optional. Consecutive rejected connection
       attempts before the socket stops. Defaults to `5`.
@@ -41,17 +43,18 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def init(options) do
     parent = Keyword.fetch!(options, :parent)
-    config = Keyword.fetch!(options, :config)
     parent_ref = Process.monitor(parent)
 
+    # The config holds credentials. Slipstream keeps it in channel_config,
+    # which Inspect omits, so it must not be copied into the assigns.
     socket =
-      config
+      options
+      |> Keyword.fetch!(:config)
       |> Slipstream.connect!()
       |> Slipstream.Socket.assign(
         parent: parent,
         parent_ref: parent_ref,
-        config: config,
-        request: Keyword.get(options, :request),
+        request: source(Keyword.get(options, :request)),
         max_rejections: Keyword.get(options, :max_rejections, 5),
         rejections: 0,
         pids: %{},
@@ -216,7 +219,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   @impl Slipstream
   def handle_info({:update_request, %Req.Request{} = request}, socket) do
-    {:noreply, assign(socket, :request, request)}
+    {:noreply, assign(socket, :request, source(request))}
   end
 
   @impl Slipstream
@@ -299,6 +302,15 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   defp count_rejection(socket, _reason), do: socket
 
+  # Without a request there is nothing to refresh, so Slipstream reconnects
+  # with the config it already holds.
+  defp schedule_reconnect(%{assigns: %{request: nil}} = socket) do
+    case reconnect(socket) do
+      {:ok, socket} -> {:ok, socket}
+      {:error, reason} -> {:stop, reason, socket}
+    end
+  end
+
   # Slipstream.reconnect/1 re-uses the old config, so the backoff is scheduled by hand.
   defp schedule_reconnect(socket) do
     {time, socket} = Slipstream.Socket.next_reconnect_time(socket)
@@ -306,9 +318,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     {:ok, socket}
   end
 
-  defp refresh_config(%{assigns: %{request: nil, config: config}}), do: {:ok, config}
+  defp source(nil), do: nil
+  defp source(%Req.Request{} = request), do: Source.new(request)
 
-  defp refresh_config(%{assigns: %{request: request}}) do
+  defp refresh_config(%{assigns: %{request: %Source{request: request}}}) do
     case Config.build(request) do
       {:ok, %Config{slipstream: config}} -> {:ok, config}
       {:error, exception} -> {:error, exception}

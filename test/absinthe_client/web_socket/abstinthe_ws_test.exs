@@ -240,7 +240,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
     send(client, {:update_request, request})
 
-    assert %{assigns: %{request: ^request}} = :sys.get_state(client)
+    assert %{assigns: %{request: %{request: ^request}}} = :sys.get_state(client)
   end
 
   defp start_client!(config \\ [uri: "wss://localhost"], opts \\ []) do

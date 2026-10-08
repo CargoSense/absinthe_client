@@ -102,8 +102,19 @@ defmodule AbsintheClient.WebSocketTest do
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "a"})
     assert {:ok, ^ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "b"})
 
-    assert %{assigns: %{request: %Req.Request{options: %{auth: {:bearer, "b"}}}}} =
+    assert %{assigns: %{request: %{request: %Req.Request{options: %{auth: {:bearer, "b"}}}}}} =
              :sys.get_state(ws)
+  end
+
+  test "the socket state does not expose the credentials" do
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "super-secret-token"})
+      |> AbsintheClient.attach(connect_params: %{"token" => "super-secret-token"})
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+
+    refute inspect(:sys.get_state(ws), limit: :infinity, printable_limit: :infinity) =~
+             "super-secret-token"
   end
 
   test "connect/2 starts a socket per URL" do
