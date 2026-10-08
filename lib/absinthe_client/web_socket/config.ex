@@ -19,9 +19,18 @@ defmodule AbsintheClient.WebSocket.Config do
 
   The request steps run on each call, so function-valued options such
   as `auth: fn -> ... end` produce fresh credentials.
+
+  With `credentials: false` the `:auth` and `:connect_params` options
+  are dropped first. The key and the connection options do not depend
+  on them, so the caller of `connect/2` never runs a credential function.
   """
-  @spec build(Request.t()) :: {:ok, t()} | {:error, Exception.t()}
-  def build(%Request{} = request) do
+  @spec build(Request.t(), keyword()) :: {:ok, t()} | {:error, Exception.t()}
+  def build(%Request{} = request, options \\ []) do
+    request =
+      if Keyword.get(options, :credentials, true),
+        do: request,
+        else: request |> Request.delete_option(:auth) |> Request.delete_option(:connect_params)
+
     case Req.request(%{request | adapter: __MODULE__}) do
       {:ok, %{body: %__MODULE__{} = config}} -> {:ok, config}
       {:error, exception} -> {:error, exception}

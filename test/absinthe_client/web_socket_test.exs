@@ -1,5 +1,6 @@
 defmodule AbsintheClient.WebSocketTest do
   use ExUnit.Case
+  import ExUnit.CaptureLog
 
   doctest AbsintheClient.WebSocket.Push
 
@@ -133,6 +134,61 @@ defmodule AbsintheClient.WebSocketTest do
     assert {:ok, auth_ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
 
     assert ws != auth_ws
+  end
+
+  test "runs the auth function in the socket process on every attempt" do
+    test_pid = self()
+
+    auth = fn ->
+      send(test_pid, {:auth_called, self()})
+      {:bearer, "valid-token"}
+    end
+
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002", auth: auth))
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    assert_receive {:auth_called, ^ws}
+    refute_received {:auth_called, ^test_pid}
+  end
+
+  @tag :capture_log
+  test "a raise in the auth function counts as a rejection and logs the stacktrace" do
+    req =
+      Req.new(
+        base_url: "http://localhost:4002",
+        auth: fn -> raise "token service unavailable" end
+      )
+      |> AbsintheClient.attach(max_rejections: 2, reconnect_delay: 10)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+        assert_receive %AbsintheClient.WebSocket.Closed{
+          socket: ^ws,
+          ref: nil,
+          reason: {:error, %RuntimeError{message: "token service unavailable"}}
+        }
+      end)
+
+    assert log =~ "failed to build the request"
+    assert log =~ "** (RuntimeError) token service unavailable"
+    assert log =~ Path.basename(__ENV__.file)
+  end
+
+  @tag :capture_log
+  test "connect/2 returns the error when a raise in the auth function is not retried" do
+    req =
+      Req.new(
+        base_url: "http://localhost:4002",
+        auth: fn -> raise "token service unavailable" end
+      )
+      |> AbsintheClient.attach(max_rejections: 1)
+
+    assert {:error, %RuntimeError{message: "token service unavailable"}} =
+             AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    refute_received %AbsintheClient.WebSocket.Closed{}
   end
 
   @tag :capture_log

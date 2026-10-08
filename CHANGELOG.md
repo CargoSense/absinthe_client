@@ -19,8 +19,13 @@ the socket calls it each time it connects:
 
     {:ok, ws} = AbsintheClient.WebSocket.connect(req)
 
-The function runs inside the socket process. Read the token from a
-shared place such as an `Agent`, an ETS table, or a token server.
+The function always runs inside the socket process, on the first
+connection as well as on every reconnect. Read the token from a shared
+place such as an `Agent`, an ETS table, or a token server, and do not
+call into the parent process from it. A raise in the function counts as
+a rejected connection and is logged with its stacktrace. `connect/2`
+returns `{:ok, pid}` and the socket retries, unless it gives up on the
+first attempt, in which case `connect/2` returns `{:error, exception}`.
 
 When the server still rejects the connection, the socket retries with
 the same exponential backoff with jitter as the `Req.Steps.retry/1`

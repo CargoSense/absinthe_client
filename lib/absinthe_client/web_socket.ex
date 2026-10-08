@@ -150,8 +150,16 @@ defmodule AbsintheClient.WebSocket do
 
       {:ok, ws} = AbsintheClient.WebSocket.connect(req)
 
-  The function runs inside the socket process, so it must read the
-  token from a shared place such as an `Agent` or ETS table.
+  The function always runs inside the socket process, on the first
+  connection as well as on every reconnect. It must read the token
+  from a shared place such as an `Agent`, an ETS table, or a token
+  server. It must not call into the parent process: `connect/2` waits
+  for the first attempt, and later the parent may be waiting on the
+  socket while the socket waits on the function. A raise in the
+  function counts as a rejected connection and is logged with its
+  stacktrace. When the socket gives up on the first attempt, because
+  `:max_rejections` is `1` or `:reconnect` is `false`, `connect/2`
+  returns `{:error, exception}` instead.
 
   Transport failures, 5xx responses, and the transient 408 and 429
   responses retry with Slipstream's backoff until the parent process
@@ -261,7 +269,7 @@ defmodule AbsintheClient.WebSocket do
 
     parent = Map.get(request.options, :parent, self())
 
-    with {:ok, config} <- Config.build(request) do
+    with {:ok, config} <- Config.build(request, credentials: false) do
       start_socket(parent, request, config)
     end
   end
@@ -272,7 +280,6 @@ defmodule AbsintheClient.WebSocket do
     child_spec =
       {AbsintheWs,
        parent: parent,
-       config: config.slipstream,
        request: request,
        max_rejections: config.max_rejections,
        reconnect_delay: config.reconnect_delay,
@@ -286,6 +293,10 @@ defmodule AbsintheClient.WebSocket do
       {:error, {:already_started, pid}} ->
         send(pid, {:update_request, request})
         {:ok, pid}
+
+      # The socket gave up on its first attempt, so the build error is returned.
+      {:error, {:shutdown, {:closed, {:error, %{__exception__: true} = exception}}}} ->
+        {:error, exception}
 
       {:error, %{__exception__: true} = exception} ->
         {:error, exception}

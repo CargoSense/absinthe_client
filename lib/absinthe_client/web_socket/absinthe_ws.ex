@@ -15,11 +15,13 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
     * `:parent` - Required. The pid of the process that owns the socket.
 
-    * `:config` - Required. The `Slipstream` connection options.
+    * `:request` - The `Req.Request` to run before each connection
+      attempt, the first one included. Required unless `:config` is
+      given.
 
-    * `:request` - Optional. The `Req.Request` to re-run before each
-      connection attempt. Defaults to `nil`, which reconnects with the
-      same `:config`.
+    * `:config` - The `Slipstream` connection options. Required unless
+      `:request` is given, in which case it is ignored and the socket
+      builds the options from the request.
 
     * `:max_rejections` - Optional. Consecutive rejected connection
       attempts before the socket stops. Defaults to `5`.
@@ -46,10 +48,21 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) when is_list(options) do
-    config = Keyword.fetch!(options, :config)
-
-    with {:ok, _config} <- Slipstream.Configuration.validate(config) do
+    with :ok <- validate_start(options) do
       Slipstream.start_link(__MODULE__, options, Keyword.take(options, [:name]))
+    end
+  end
+
+  defp validate_start(options) do
+    case {Keyword.fetch(options, :request), Keyword.fetch(options, :config)} do
+      {{:ok, %Req.Request{}}, _} ->
+        :ok
+
+      {:error, {:ok, config}} ->
+        with {:ok, _config} <- Slipstream.Configuration.validate(config), do: :ok
+
+      {:error, :error} ->
+        {:error, %ArgumentError{message: "expected a :request or a :config option"}}
     end
   end
 
@@ -58,13 +71,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     parent = Keyword.fetch!(options, :parent)
     parent_ref = Process.monitor(parent)
 
-    # The config holds credentials. Slipstream keeps it in channel_config,
-    # which Inspect omits, so it must not be copied into the assigns.
     socket =
-      options
-      |> Keyword.fetch!(:config)
-      |> Slipstream.connect!()
-      |> Slipstream.Socket.assign(
+      Slipstream.Socket.assign(Slipstream.new_socket(),
         parent: parent,
         parent_ref: parent_ref,
         request: source(Keyword.get(options, :request)),
@@ -72,6 +80,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
         reconnect_delay: Keyword.get(options, :reconnect_delay),
         reconnect: Keyword.get(options, :reconnect, true),
         rejections: 0,
+        attempts: 0,
+        connecting: false,
+        parent_down: false,
         pids: %{},
         channel_connected: false,
         active_subscriptions: %{},
@@ -79,41 +90,67 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
         pending: []
       )
 
-    {:ok, socket}
+    # The config holds credentials. Slipstream keeps it in channel_config,
+    # which Inspect omits, so it must not be copied into the assigns.
+    case socket.assigns.request do
+      nil ->
+        socket = Slipstream.connect!(socket, Keyword.fetch!(options, :config))
+        {:ok, assign(socket, :connecting, true)}
+
+      %Source{} ->
+        first_connect(socket)
+    end
+  end
+
+  # The request is built here, in the socket, and connect/2 returns once
+  # the connection process exists. Slipstream monitors this process from
+  # that connection, so the parent must not be able to exit before the
+  # monitor is in place. A failed build takes the reconnect path. When the
+  # socket gives up at once, connect/2 returns the error and no Closed
+  # message is sent.
+  defp first_connect(socket) do
+    case attempt_connect(socket) do
+      {:ok, socket} ->
+        {:ok, socket}
+
+      {:error, reason} ->
+        case next_attempt(socket, {:error, reason}) do
+          {:retry, socket} ->
+            {:ok, socket}
+
+          {:close, socket} ->
+            log_closed(socket, {:error, reason})
+            {:stop, {:shutdown, {:closed, {:error, reason}}}}
+        end
+    end
   end
 
   @impl Slipstream
+  def handle_connect(%{assigns: %{parent_down: true}} = socket) do
+    {:stop, :shutdown, socket}
+  end
+
   def handle_connect(socket) do
-    {:ok, socket |> assign(:rejections, 0) |> join(@control_topic)}
+    {:ok,
+     socket
+     |> assign(rejections: 0, attempts: 0, connecting: false)
+     |> join(@control_topic)}
   end
 
   @impl Slipstream
+  def handle_disconnect(_reason, %{assigns: %{parent_down: true}} = socket) do
+    {:stop, :shutdown, socket}
+  end
+
   def handle_disconnect(reason, socket) do
     socket =
       socket
-      |> assign(:channel_connected, false)
+      |> assign(channel_connected: false, connecting: false)
       |> enqueue_active_subscriptions()
 
-    cond do
-      not reconnect?(socket, reason) ->
-        close(socket, reason)
-
-      rejection?(reason) ->
-        socket = update(socket, :rejections, &(&1 + 1))
-        %{rejections: rejections, max_rejections: max_rejections} = socket.assigns
-
-        if rejections >= max_rejections do
-          close(socket, reason)
-        else
-          {delay, socket} = reconnect_delay(socket, reason)
-          log_rejection(reason, delay, max_rejections - rejections)
-          schedule_reconnect(socket, delay)
-        end
-
-      true ->
-        {delay, socket} = reconnect_delay(socket, reason)
-        log_retry(reason, delay)
-        schedule_reconnect(socket, delay)
+    case next_attempt(socket, reason) do
+      {:retry, socket} -> {:ok, socket}
+      {:close, socket} -> close(socket, reason)
     end
   end
 
@@ -254,10 +291,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   @impl Slipstream
   def handle_info(:reconnect, socket) do
-    with {:ok, config} <- refresh_config(socket),
-         {:ok, socket} <- Slipstream.connect(socket, config) do
-      {:noreply, socket}
-    else
+    case attempt_connect(socket) do
+      {:ok, socket} ->
+        {:noreply, socket}
+
       {:error, reason} ->
         case handle_disconnect({:error, reason}, socket) do
           {:ok, socket} -> {:noreply, socket}
@@ -266,9 +303,18 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     end
   end
 
+  # The connection process monitors this one from its init. Erlang orders
+  # signals per sender only, so if the socket exits before it has handled
+  # that monitor signal, the connection gets a :noproc DOWN and crashes.
+  # Handling any message from the connection guarantees the monitor is in
+  # place, so a stop during a connection attempt waits for its outcome.
   @impl Slipstream
   def handle_info({:DOWN, ref, :process, _, _}, %{assigns: %{parent_ref: ref}} = socket) do
-    {:stop, :shutdown, socket}
+    if socket.assigns.connecting do
+      {:noreply, assign(socket, :parent_down, true)}
+    else
+      {:stop, :shutdown, socket}
+    end
   end
 
   @impl Slipstream
@@ -335,10 +381,43 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   defp rejection?({:error, %{__exception__: true}}), do: true
   defp rejection?(_reason), do: false
 
+  # Builds the config from the request and asks Slipstream to connect.
+  defp attempt_connect(socket) do
+    with {:ok, config} <- refresh_config(socket),
+         {:ok, socket} <- Slipstream.connect(socket, config) do
+      {:ok, assign(socket, :connecting, true)}
+    end
+  end
+
+  # Decides whether the socket tries again and schedules the attempt if so.
+  defp next_attempt(socket, reason) do
+    cond do
+      not reconnect?(socket, reason) ->
+        {:close, socket}
+
+      rejection?(reason) ->
+        socket = update(socket, :rejections, &(&1 + 1))
+        %{rejections: rejections, max_rejections: max_rejections} = socket.assigns
+
+        if rejections >= max_rejections do
+          {:close, socket}
+        else
+          {delay, socket} = reconnect_delay(socket, reason)
+          log_rejection(reason, delay, max_rejections - rejections)
+          {:retry, schedule_reconnect(socket, delay)}
+        end
+
+      true ->
+        {delay, socket} = reconnect_delay(socket, reason)
+        log_retry(reason, delay)
+        {:retry, schedule_reconnect(socket, delay)}
+    end
+  end
+
   # Slipstream.reconnect/1 re-uses the old config, so the backoff is scheduled by hand.
   defp schedule_reconnect(socket, delay) do
     Process.send_after(self(), :reconnect, delay)
-    {:ok, socket}
+    socket
   end
 
   # The same knob as Req's :retry_delay. Without it a transport failure
@@ -346,25 +425,34 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   # backoff: the delay doubles from one second with jitter, and a
   # Retry-After header wins.
   defp reconnect_delay(socket, reason) do
-    {slipstream_delay, socket} = Slipstream.Socket.next_reconnect_time(socket)
+    count = socket.assigns.attempts
+    socket = assign(socket, :attempts, count + 1)
 
     delay =
       case socket.assigns.reconnect_delay do
-        nil -> default_delay(socket, reason, slipstream_delay)
+        nil -> default_delay(socket, reason, count)
         delay when is_integer(delay) and delay >= 0 -> delay
-        fun when is_function(fun, 1) -> custom_delay(fun, socket.reconnect_counter - 1)
+        fun when is_function(fun, 1) -> custom_delay(fun, count)
       end
 
     {delay, socket}
   end
 
-  defp default_delay(socket, reason, slipstream_delay) do
+  defp default_delay(socket, reason, count) do
     cond do
       delay = retry_after(reason) -> delay
       rejection?(reason) -> exp_backoff_with_jitter(socket.assigns.rejections - 1)
-      true -> slipstream_delay
+      true -> slipstream_delay(socket, count)
     end
   end
+
+  # Slipstream's list, as Slipstream.reconnect/1 reads it: the last value repeats.
+  defp slipstream_delay(%{channel_config: %{reconnect_after_msec: times}}, count),
+    do: Enum.at(times, count, List.last(times))
+
+  # A transport failure needs a connection, so the config is always set by
+  # then. This clause only keeps the socket alive if that ever changes.
+  defp slipstream_delay(_socket, count), do: exp_backoff_with_jitter(count)
 
   defp custom_delay(fun, count) do
     case fun.(count) do
@@ -412,6 +500,12 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   defp describe({:error, %{__exception__: true} = exception}),
     do: "connection failed: (#{inspect(exception.__struct__)}) #{Exception.message(exception)}"
 
+  defp log_closed(%{assigns: %{rejections: rejections}}, reason) do
+    Logger.warning(
+      "#{inspect(__MODULE__)} #{closed_because(rejections)}, got: #{inspect(reason)}"
+    )
+  end
+
   defp closed_because(0), do: "closed without reconnecting"
   defp closed_because(rejections), do: "closed after #{rejections} rejected connection attempts"
 
@@ -429,7 +523,14 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       {:error, exception} -> {:error, exception}
     end
   rescue
-    exception -> {:error, exception}
+    exception ->
+      # The socket reports the exception without the trace, so log it here.
+      Logger.warning([
+        "#{inspect(__MODULE__)} failed to build the request\n",
+        Exception.format(:error, exception, __STACKTRACE__)
+      ])
+
+      {:error, exception}
   end
 
   defp close(socket, reason) do
@@ -437,12 +538,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     for key <- Registry.keys(AbsintheClient.SocketRegistry, self()),
         do: Registry.unregister(AbsintheClient.SocketRegistry, key)
 
-    %{parent: parent, pending: pending, inflight: inflight, rejections: rejections} =
-      socket.assigns
+    %{parent: parent, pending: pending, inflight: inflight} = socket.assigns
 
-    Logger.warning(
-      "#{inspect(__MODULE__)} #{closed_because(rejections)}, got: #{inspect(reason)}"
-    )
+    log_closed(socket, reason)
 
     pushes =
       Enum.map(pending, &{&1, &1.pushed_counter == 0}) ++

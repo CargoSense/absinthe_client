@@ -248,6 +248,23 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, :closed}}}
   end
 
+  test "a parent exit during a connection attempt stops the socket after the attempt" do
+    parent = spawn(fn -> receive do: (:exit -> :ok) end)
+
+    client =
+      start_supervised!(
+        {AbsintheWs, parent: parent, config: [uri: "wss://localhost", test_mode?: true]}
+      )
+
+    ref = Process.monitor(client)
+    send(parent, :exit)
+    _ = :sys.get_state(client)
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+
+    accept_connect(client)
+    assert_receive {:DOWN, ^ref, :process, ^client, :shutdown}
+  end
+
   test "a reply removes the caller's monitor on the socket" do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
