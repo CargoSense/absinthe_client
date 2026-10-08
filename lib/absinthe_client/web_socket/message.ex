@@ -96,8 +96,12 @@ defmodule AbsintheClient.WebSocket.Error do
 
     * `:timeout` - The server did not reply within the receive timeout.
 
-    * `{:closed, reason}` - The socket process exited before it replied.
-      The inner reason is the exit reason of the socket process.
+    * `{:closed, reason}` - The socket stopped before the server replied.
+      When the socket gives up after repeated rejections, the inner
+      reason is the final disconnect reason, for example
+      `{:error, {:upgrade_failure, %{status_code: 403}}}`. When the
+      socket had already exited, it is the exit reason of the socket
+      process, for example `:noproc`.
 
   """
   defexception [:reason]

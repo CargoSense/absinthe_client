@@ -420,8 +420,16 @@ defmodule AbsintheClient.WebSocket do
 
   defp await_reply(%Request{} = req, ref, receive_timeout) do
     case await_reply(ref, receive_timeout) do
-      {:ok, reply} -> {req, reply_response(req, reply)}
-      {:error, reason} -> {req, %AbsintheClient.WebSocket.Error{reason: reason}}
+      # Only a closing socket replies without a push ref. Req does not retry
+      # an exception, so the caller gets the close reason, not :noproc.
+      {:ok, %Reply{status: :error, push_ref: nil, payload: reason}} ->
+        {req, %AbsintheClient.WebSocket.Error{reason: {:closed, reason}}}
+
+      {:ok, reply} ->
+        {req, reply_response(req, reply)}
+
+      {:error, reason} ->
+        {req, %AbsintheClient.WebSocket.Error{reason: reason}}
     end
   end
 

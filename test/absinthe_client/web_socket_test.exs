@@ -138,10 +138,11 @@ defmodule AbsintheClient.WebSocketTest do
   end
 
   @tag :capture_log
-  test "stops after max rejections and replies with an error" do
+  test "stops after max rejections and returns the close reason" do
+    # Req's default retry must not re-push to the closed socket.
     req =
       Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
-      |> AbsintheClient.attach(retry: false)
+      |> AbsintheClient.attach()
 
     assert {:ok, ws} =
              AbsintheClient.WebSocket.connect(req,
@@ -151,8 +152,11 @@ defmodule AbsintheClient.WebSocketTest do
 
     monitor_ref = Process.monitor(ws)
 
-    assert %Req.Response{status: 500, body: {:error, {:upgrade_failure, %{status_code: 403}}}} =
-             Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+    assert {:error,
+            %AbsintheClient.WebSocket.Error{
+              reason: {:closed, {:error, {:upgrade_failure, %{status_code: 403}}}}
+            }} =
+             Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
 
     assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
     assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
