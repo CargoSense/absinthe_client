@@ -176,6 +176,23 @@ defmodule AbsintheClient.WebSocketTest do
     assert log =~ Path.basename(__ENV__.file)
   end
 
+  test "does not run the auth function for operations over the socket" do
+    calls = start_supervised!({Agent, fn -> 0 end})
+
+    auth = fn ->
+      Agent.update(calls, &(&1 + 1))
+      {:bearer, "valid-token"}
+    end
+
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002", auth: auth))
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    assert %{status: 200} =
+             Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+
+    assert Agent.get(calls, & &1) == 1
+  end
+
   @tag :capture_log
   test "connect/2 returns the error when a raise in the auth function is not retried" do
     req =

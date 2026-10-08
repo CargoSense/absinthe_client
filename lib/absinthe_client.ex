@@ -379,7 +379,9 @@ defmodule AbsintheClient do
   defp put_ws_adapter(%Request{} = request) do
     case Map.fetch(request.options, :web_socket) do
       {:ok, _web_socket} ->
-        %Request{request | adapter: WebSocket}
+        # The socket holds the credentials, so the auth step must not run a
+        # token function for every push.
+        Request.delete_option(%Request{request | adapter: WebSocket}, :auth)
 
       :error ->
         request

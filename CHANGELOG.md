@@ -20,7 +20,8 @@ the socket calls it each time it connects:
     {:ok, ws} = AbsintheClient.WebSocket.connect(req)
 
 The function always runs inside the socket process, on the first
-connection as well as on every reconnect. Read the token from a shared
+connection as well as on every reconnect, and never for an operation
+sent over the socket. Read the token from a shared
 place such as an `Agent`, an ETS table, or a token server, and do not
 call into the parent process from it. A raise in the function counts as
 a rejected connection and is logged with its stacktrace. `connect/2`

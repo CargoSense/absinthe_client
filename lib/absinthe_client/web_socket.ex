@@ -151,7 +151,8 @@ defmodule AbsintheClient.WebSocket do
       {:ok, ws} = AbsintheClient.WebSocket.connect(req)
 
   The function always runs inside the socket process, on the first
-  connection as well as on every reconnect. It must read the token
+  connection as well as on every reconnect, and never for an operation
+  sent over the socket. It must read the token
   from a shared place such as an `Agent`, an ETS table, or a token
   server. It must not call into the parent process: `connect/2` waits
   for the first attempt, and later the parent may be waiting on the
