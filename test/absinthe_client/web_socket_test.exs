@@ -168,7 +168,7 @@ defmodule AbsintheClient.WebSocketTest do
         assert_receive %AbsintheClient.WebSocket.Closed{
           socket: ^ws,
           ref: nil,
-          reason: {:error, %RuntimeError{message: "token service unavailable"}}
+          reason: {:request_failed, %RuntimeError{message: "token service unavailable"}}
         }
       end)
 
@@ -250,8 +250,9 @@ defmodule AbsintheClient.WebSocketTest do
     monitor_ref = Process.monitor(ws)
 
     assert {:error,
-            %AbsintheClient.WebSocket.Error{
-              reason: {:closed, {:error, {:upgrade_failure, %{status_code: 403}}}}
+            %AbsintheClient.WebSocket.Closed{
+              socket: ^ws,
+              reason: {:rejected, %Req.Response{status: 403}}
             }} =
              Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
 
@@ -316,7 +317,8 @@ defmodule AbsintheClient.WebSocketTest do
 
     ref = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
 
-    assert {:error, {:closed, _}} = AbsintheClient.WebSocket.await_reply(ref, 1_000)
+    assert {:error, %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: ^ref, reason: :noproc}} =
+             AbsintheClient.WebSocket.await_reply(ref, 1_000)
   end
 
   @tag :capture_log
@@ -331,7 +333,7 @@ defmodule AbsintheClient.WebSocketTest do
     monitor_ref = Process.monitor(ws)
     assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
 
-    assert {:error, %AbsintheClient.WebSocket.Error{reason: {:closed, :noproc}}} =
+    assert {:error, %AbsintheClient.WebSocket.Closed{socket: ^ws, reason: :noproc}} =
              Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
   end
 
@@ -353,7 +355,7 @@ defmodule AbsintheClient.WebSocketTest do
     assert_receive %AbsintheClient.WebSocket.Closed{
       socket: ^ws,
       ref: nil,
-      reason: {:function_clause, _}
+      reason: {:crashed, {:function_clause, _}}
     }
 
     assert Registry.keys(AbsintheClient.SocketRegistry, ws) == []

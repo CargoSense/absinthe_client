@@ -120,7 +120,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
           {:close, socket} ->
             log_closed(socket, {:error, reason})
-            {:stop, {:shutdown, {:closed, {:error, reason}}}}
+            {:stop, {:shutdown, {:closed, classify({:error, reason})}}}
         end
     end
   end
@@ -539,8 +539,17 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     unregister()
     log_closed(socket, reason)
 
-    {:stop, {:shutdown, {:closed, reason}}, socket}
+    {:stop, {:shutdown, {:closed, classify(reason)}}, socket}
   end
+
+  # Turns a Slipstream disconnect reason into a Closed reason, so callers
+  # match on terms this library owns rather than on Mint's.
+  defp classify({:error, {:upgrade_failure, %{status_code: status, resp_headers: headers}}}),
+    do: {:rejected, Req.Response.new(status: status, headers: headers)}
+
+  defp classify({:error, %Mint.TransportError{} = error}), do: {:disconnected, error}
+  defp classify({:error, %{__exception__: true} = exception}), do: {:request_failed, exception}
+  defp classify(reason), do: {:disconnected, reason}
 
   # Every stop that is not an exit signal reaches terminate/2, so the
   # notifications live here and a crash in a callback sends Closed too. An
@@ -550,7 +559,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def terminate(reason, socket) do
     unregister()
-    notify_closed(socket, closed_reason(reason))
+    notify_closed(socket, Closed.reason_from_exit(reason))
     disconnect(socket)
   end
 
@@ -565,9 +574,6 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     # The Registry is already down while the application stops.
     ArgumentError -> :ok
   end
-
-  defp closed_reason({:shutdown, {:closed, reason}}), do: reason
-  defp closed_reason(reason), do: reason
 
   defp notify_closed(socket, reason) do
     %{parent: parent, pending: pending, inflight: inflight, active_subscriptions: active} =
@@ -586,7 +592,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     for {%Push{pid: pid, ref: ref} = push, awaiting_reply?} <- pushes, is_pid(pid) do
       cond do
         awaiting_reply? and is_reference(ref) ->
-          send(reply_to(push), reply(push, nil, {:error, reason}))
+          send(reply_to(push), %Closed{socket: self(), ref: ref, reason: reason})
 
         push.event == "doc" and not awaiting_reply? ->
           send(pid, %Closed{socket: self(), ref: ref, reason: reason})

@@ -97,17 +97,31 @@ instead of a generated atom.
      `AbsintheClient.attach/2` or `connect/2`.
 
   4. Expect errors instead of timeouts. When the socket stops while an
-     operation is pending, `Req.request/2` returns
-     `{:error, %AbsintheClient.WebSocket.Error{reason: {:closed, reason}}}`
-     with the disconnect reason, and `Req.request!/2` raises it. Req does
-     not retry this error. `AbsintheClient.WebSocket.await_reply/2`
-     returns `{:error, {:closed, reason}}` with the same reason, and
-     `AbsintheClient.WebSocket.await_reply!/2` raises
-     `AbsintheClient.WebSocket.Error`. Code that treated a timeout as
-     "not authorized" should match on the error instead. A push to a socket that has already
-     stopped returns `{:error, %AbsintheClient.WebSocket.Error{}}` from
-     `Req.request/2` and `{:error, {:closed, reason}}` from
-     `AbsintheClient.WebSocket.await_reply/2`.
+     operation is pending, `Req.request/2` and
+     `AbsintheClient.WebSocket.await_reply/2` return
+     `{:error, %AbsintheClient.WebSocket.Closed{}}`, the same struct the
+     socket sends as a message, and `Req.request!/2` and
+     `AbsintheClient.WebSocket.await_reply!/2` raise it. Req does not
+     retry it. A push to a socket that has already stopped gets a
+     `Closed` with the reason `:noproc`. When the server does not reply
+     in time the error is `%AbsintheClient.WebSocket.Timeout{}`. Code
+     that treated a timeout as "not authorized" should match on `Closed`:
+
+         case Req.request(req, web_socket: ws, graphql: doc) do
+           {:ok, response} ->
+             response.body
+
+           {:error, %AbsintheClient.WebSocket.Closed{reason: {:rejected, %{status: 403}}}} ->
+             # Refresh the credentials and call connect/2 again.
+
+           {:error, %AbsintheClient.WebSocket.Timeout{}} ->
+             # The server is slow.
+         end
+
+     The `:reason` of a `Closed` is one of `{:rejected, %Req.Response{}}`,
+     `{:request_failed, exception}`, `{:disconnected, reason}`,
+     `:noproc`, `:shutdown`, or `{:crashed, reason}`. Refer to
+     `AbsintheClient.WebSocket.Closed` for their meaning.
 
   5. Replace static credentials with a function where tokens can expire:
 
@@ -141,15 +155,14 @@ instead of a generated atom.
   * Sockets stop after `:max_rejections` consecutive rejections (HTTP 4xx
     responses other than 408 and 429, or request build failures) and send
     `AbsintheClient.WebSocket.Closed` instead of retrying forever.
-  * Pending operations receive an error when the socket stops instead of
-    timing out. `Req.request/2` returns an
-    `AbsintheClient.WebSocket.Error` with the disconnect reason, and
-    `AbsintheClient.WebSocket.await_reply/2` returns
-    `{:error, {:closed, reason}}`.
-  * `Req.request/2` returns `{:error, %AbsintheClient.WebSocket.Error{}}`
-    when the server does not reply in time or the socket exits first.
-    `AbsintheClient.WebSocket.await_reply!/2` raises the same exception
-    instead of a `RuntimeError`.
+  * Pending operations receive `{:error, %AbsintheClient.WebSocket.Closed{}}`
+    when the socket stops instead of timing out, from `Req.request/2` and
+    `AbsintheClient.WebSocket.await_reply/2` alike, and
+    `AbsintheClient.WebSocket.await_reply!/2` raises it.
+  * `Req.request/2` and `AbsintheClient.WebSocket.await_reply/2` return
+    `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the server does
+    not reply in time, and `AbsintheClient.WebSocket.await_reply!/2`
+    raises it instead of a `RuntimeError`.
   * A reply that arrives after `AbsintheClient.WebSocket.await_reply/2`
     timed out is discarded instead of delivered to the caller's mailbox.
   * `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
@@ -169,9 +182,9 @@ instead of a generated atom.
     and a function decides per disconnect reason.
   * Adds `AbsintheClient.WebSocket.Closed`.
   * `AbsintheClient.WebSocket.await_reply/2` returns
-    `{:error, {:closed, reason}}` as soon as the socket exits instead of
-    waiting for the timeout.
-  * Adds `AbsintheClient.WebSocket.Error`.
+    `{:error, %AbsintheClient.WebSocket.Closed{}}` as soon as the socket
+    exits instead of waiting for the timeout.
+  * Adds `AbsintheClient.WebSocket.Timeout`.
   * Registers sockets in a `Registry` instead of creating an atom per
     connection.
   * Sends `AbsintheClient.WebSocket.Closed` from `terminate/2`, so a

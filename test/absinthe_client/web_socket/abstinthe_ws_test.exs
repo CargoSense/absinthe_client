@@ -6,6 +6,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
   @control_topic "__absinthe__:control"
   @rejection {:error, {:upgrade_failure, %{status_code: 403, resp_headers: [], reason: nil}}}
+  @rejected {:rejected, %Req.Response{status: 403}}
 
   test "connects and joins control topic" do
     socket_pid =
@@ -224,11 +225,13 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     log =
       capture_log(fn ->
         disconnect(client, :closed)
-        assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, :closed}}}
+
+        assert_receive {:DOWN, ^monitor_ref, :process, ^client,
+                        {:shutdown, {:closed, {:disconnected, :closed}}}}
       end)
 
     assert log =~ "closed without reconnecting"
-    assert_received %Closed{socket: ^client, ref: nil, reason: :closed}
+    assert_received %Closed{socket: ^client, ref: nil, reason: {:disconnected, :closed}}
   end
 
   @tag :capture_log
@@ -245,7 +248,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     refute_received {:DOWN, ^monitor_ref, :process, ^client, _}
 
     disconnect(client, :closed)
-    assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, :closed}}}
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client,
+                    {:shutdown, {:closed, {:disconnected, :closed}}}}
   end
 
   @tag :capture_log
@@ -259,8 +264,8 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     push(client, sub_id, "subscription:data", %{"unexpected" => true})
 
     assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:function_clause, _}}
-    assert_received %Closed{socket: ^client, ref: ^ref, reason: {:function_clause, _}}
-    assert_received %Closed{socket: ^client, ref: nil, reason: {:function_clause, _}}
+    assert_received %Closed{socket: ^client, ref: ^ref, reason: {:crashed, {:function_clause, _}}}
+    assert_received %Closed{socket: ^client, ref: nil, reason: {:crashed, {:function_clause, _}}}
   end
 
   test "a parent exit during a connection attempt stops the socket after the attempt" do
@@ -301,7 +306,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     msg = "msg:#{System.unique_integer()}"
 
     ref = AbsintheClient.WebSocket.push(client, msg)
-    assert {:error, :timeout} = AbsintheClient.WebSocket.await_reply(ref, 0)
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{ref: ^ref, timeout: 0}} =
+             AbsintheClient.WebSocket.await_reply(ref, 0)
 
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :late})
@@ -314,7 +321,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     ref = AbsintheClient.WebSocket.push(client, "msg")
 
-    assert_raise AbsintheClient.WebSocket.Error, ~r/timed out/, fn ->
+    assert_raise AbsintheClient.WebSocket.Timeout, ~r/no reply/, fn ->
       AbsintheClient.WebSocket.await_reply!(ref, 0)
     end
   end
@@ -323,7 +330,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"), retry: false)
 
-    assert {:error, %AbsintheClient.WebSocket.Error{reason: :timeout}} =
+    assert {:error, %AbsintheClient.WebSocket.Timeout{timeout: 0}} =
              Req.request(req, web_socket: client, graphql: "msg", receive_timeout: 0)
   end
 
@@ -346,13 +353,12 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
       capture_log(fn ->
         disconnect(client, @rejection)
 
-        assert_receive {:DOWN, ^monitor_ref, :process, ^client,
-                        {:shutdown, {:closed, @rejection}}}
+        assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, @rejected}}}
       end)
 
     assert log =~ "closed after 2 rejected connection attempts"
-    assert_received %Closed{socket: ^client, ref: ^ref, reason: @rejection}
-    assert_received %Closed{socket: ^client, ref: nil, reason: @rejection}
+    assert_received %Closed{socket: ^client, ref: ^ref, reason: @rejected}
+    assert_received %Closed{socket: ^client, ref: nil, reason: @rejected}
     # The reply removed the monitor, so an orderly close sends Closed only.
     refute_received {:DOWN, ^ref, :process, ^client, _}
   end
@@ -367,9 +373,24 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
 
     disconnect(client, @rejection)
 
-    assert {:error, {:closed, @rejection}} = AbsintheClient.WebSocket.await_reply(ref)
-    assert_receive %Closed{socket: ^client, ref: nil, reason: @rejection}
+    assert {:error, %Closed{socket: ^client, ref: ^ref, reason: @rejected}} =
+             AbsintheClient.WebSocket.await_reply(ref)
+
+    assert_receive %Closed{socket: ^client, ref: nil, reason: @rejected}
     refute_received %Closed{ref: ^ref}
+  end
+
+  test "a socket exit reason converts to the same Closed reason a message carries" do
+    ref = make_ref()
+
+    assert %Closed{socket: self(), ref: ref, reason: @rejected} ==
+             Closed.from_exit(self(), ref, {:shutdown, {:closed, @rejected}})
+
+    assert %Closed{reason: :noproc} = Closed.from_exit(self(), ref, :noproc)
+    assert %Closed{reason: :shutdown} = Closed.from_exit(self(), ref, :shutdown)
+
+    assert %Closed{reason: {:crashed, {:badarg, []}}} =
+             Closed.from_exit(self(), ref, {:badarg, []})
   end
 
   test "adopts an updated request" do

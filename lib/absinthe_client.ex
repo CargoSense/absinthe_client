@@ -37,8 +37,9 @@ defmodule AbsintheClient do
     * `:receive_timeout` - Optional. The maximum time (in milliseconds)
       to wait for the WebSocket server to reply. The default value is
       `15_000`. `Req.request/2` returns
-      `{:error, %AbsintheClient.WebSocket.Error{}}` when the time runs
-      out or the socket exits before it replies.
+      `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the time runs
+      out, and `{:error, %AbsintheClient.WebSocket.Closed{}}` when the
+      socket stops before it replies.
 
     * `:async` - Optional. When set to `true`, AbsintheClient will
       return the Response without waiting for a reply from the
@@ -303,14 +304,13 @@ defmodule AbsintheClient do
       ...>     %{"repository" => "ELIXIR"}
       ...>   }
       ...> )
-      iex> {:error, {:closed, reason}} = AbsintheClient.WebSocket.await_reply(res)
-      iex> {:error, {:upgrade_failure, %{status_code: status}}} = reason
-      iex> status
+      iex> {:error, %AbsintheClient.WebSocket.Closed{reason: {:rejected, response}}} =
+      ...>   AbsintheClient.WebSocket.await_reply(res)
+      iex> response.status
       403
       iex> receive do
-      ...>   %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil, reason: reason} ->
-      ...>     {:error, {:upgrade_failure, %{status_code: status}}} = reason
-      ...>     status
+      ...>   %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil, reason: {:rejected, response}} ->
+      ...>     response.status
       ...> end
       403
 

@@ -50,7 +50,7 @@ defmodule AbsintheClient.WebSocket do
 
   """
   alias AbsintheClient.Utils
-  alias AbsintheClient.WebSocket.{AbsintheWs, Config, Push, Reply}
+  alias AbsintheClient.WebSocket.{AbsintheWs, Closed, Config, Push, Reply, Timeout}
   alias Req.Request
 
   @type graphql :: String.t() | {String.t(), nil | map()}
@@ -172,8 +172,8 @@ defmodule AbsintheClient.WebSocket do
   warning. After
   `:max_rejections` rejections in a row the socket sends an
   `AbsintheClient.WebSocket.Closed` message to the parent and to each
-  subscriber, returns `{:error, {:closed, reason}}` from
-  `await_reply/2` for any pending operation, and stops. Calling
+  subscriber, returns the same `Closed` struct as the error of any
+  pending operation, and stops. Calling
   `connect/2` again starts a new socket. The socket sends the same
   `Closed` message when it crashes. Only a kill from outside or a stop
   of the `:absinthe_client` application ends a socket without one.
@@ -298,7 +298,7 @@ defmodule AbsintheClient.WebSocket do
         {:ok, pid}
 
       # The socket gave up on its first attempt, so the build error is returned.
-      {:error, {:shutdown, {:closed, {:error, %{__exception__: true} = exception}}}} ->
+      {:error, {:shutdown, {:closed, {:request_failed, exception}}}} ->
         {:error, exception}
 
       {:error, %{__exception__: true} = exception} ->
@@ -395,7 +395,7 @@ defmodule AbsintheClient.WebSocket do
   a monitor on the socket. The reply removes the monitor. If the socket
   exits before it replies, the caller receives a
   `{:DOWN, ref, :process, socket, reason}` message instead, which
-  `await_reply/2` returns as `{:error, {:closed, reason}}`.
+  `await_reply/2` returns as `{:error, %AbsintheClient.WebSocket.Closed{}}`.
 
   ## Examples
 
@@ -430,12 +430,11 @@ defmodule AbsintheClient.WebSocket do
   @doc """
   Awaits the server's response to a pushed document.
 
-  Returns `{:error, :timeout}` when the server does not reply within
-  `timeout`, and `{:error, {:closed, reason}}` when the socket stops
-  before the server replies. When the socket gives up after repeated
-  rejections, `reason` is the final disconnect reason. When the socket
-  had already exited, `reason` is its exit reason. A reply that arrives
-  after the timeout is discarded.
+  Returns `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the
+  server does not reply within `timeout`, and
+  `{:error, %AbsintheClient.WebSocket.Closed{}}` when the socket stops
+  before the server replies or had already stopped. A reply that
+  arrives after the timeout is discarded.
 
   ## Examples
 
@@ -447,7 +446,7 @@ defmodule AbsintheClient.WebSocket do
       %{"__type" => %{"name" => "Repo"}}
   """
   @spec await_reply(Req.Response.t() | reference(), non_neg_integer()) ::
-          {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, :timeout | {:closed, term()}}
+          {:ok, AbsintheClient.WebSocket.Reply.t()} | {:error, Timeout.t() | Closed.t()}
   def await_reply(response_or_ref, timeout \\ 5000)
 
   def await_reply(%Req.Response{body: ref}, timeout) when is_reference(ref) do
@@ -456,39 +455,36 @@ defmodule AbsintheClient.WebSocket do
 
   def await_reply(ref, timeout) when is_reference(ref) do
     receive do
-      # Only a closing socket replies without a push ref. Return the same
-      # error as for a socket that is already down.
-      %Reply{ref: ^ref, status: :error, push_ref: nil, payload: reason} ->
-        {:error, {:closed, reason}}
-
       %Reply{ref: ^ref} = reply ->
         {:ok, reply}
 
-      {:DOWN, ^ref, :process, _, reason} ->
-        {:error, {:closed, reason}}
+      # A closing socket sends Closed to the push ref, which is a reply alias.
+      %Closed{ref: ^ref} = closed ->
+        {:error, closed}
+
+      {:DOWN, ^ref, :process, socket, reason} ->
+        {:error, Closed.from_exit(socket, ref, reason)}
     after
       timeout ->
         # Removing the monitor also removes the alias, so a late reply is dropped.
         Process.demonitor(ref, [:flush])
-        {:error, :timeout}
+        {:error, %Timeout{ref: ref, timeout: timeout}}
     end
   end
 
   defp await_reply(%Request{} = req, ref, receive_timeout) do
     case await_reply(ref, receive_timeout) do
-      {:ok, reply} ->
-        {req, reply_response(req, reply)}
-
-      {:error, reason} ->
-        {req, %AbsintheClient.WebSocket.Error{reason: reason}}
+      {:ok, reply} -> {req, reply_response(req, reply)}
+      {:error, exception} -> {req, exception}
     end
   end
 
   @doc """
   Awaits the server's response to a pushed document or raises an error.
 
-  Raises `AbsintheClient.WebSocket.Error` when the server does not reply
-  within `timeout` or the socket stops before the server replies.
+  Raises `AbsintheClient.WebSocket.Timeout` when the server does not
+  reply within `timeout`, and `AbsintheClient.WebSocket.Closed` when the
+  socket stops before the server replies.
 
   ## Examples
 
@@ -509,7 +505,7 @@ defmodule AbsintheClient.WebSocket do
   def await_reply!(ref, timeout) when is_reference(ref) do
     case await_reply(ref, timeout) do
       {:ok, reply} -> reply
-      {:error, reason} -> raise AbsintheClient.WebSocket.Error, reason: reason
+      {:error, exception} -> raise exception
     end
   end
 
