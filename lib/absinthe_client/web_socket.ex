@@ -174,7 +174,9 @@ defmodule AbsintheClient.WebSocket do
   `AbsintheClient.WebSocket.Closed` message to the parent and to each
   subscriber, returns `{:error, {:closed, reason}}` from
   `await_reply/2` for any pending operation, and stops. Calling
-  `connect/2` again starts a new socket.
+  `connect/2` again starts a new socket. The socket sends the same
+  `Closed` message when it crashes. Only a kill from outside or a stop
+  of the `:absinthe_client` application ends a socket without one.
 
   Set `reconnect: false` to stop on the first disconnect instead, or
   pass a function to decide per disconnect reason:

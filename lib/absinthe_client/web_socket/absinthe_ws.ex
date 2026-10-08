@@ -538,9 +538,34 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     for key <- Registry.keys(AbsintheClient.SocketRegistry, self()),
         do: Registry.unregister(AbsintheClient.SocketRegistry, key)
 
-    %{parent: parent, pending: pending, inflight: inflight} = socket.assigns
-
     log_closed(socket, reason)
+
+    {:stop, {:shutdown, {:closed, reason}}, socket}
+  end
+
+  # Every stop that is not an exit signal reaches terminate/2, so the
+  # notifications live here and a crash in a callback sends Closed too. An
+  # exit signal means the socket was killed or the application is stopping.
+  # Registered processes are linked to their Registry partition, so a Registry
+  # stop is an exit signal as well.
+  @impl Slipstream
+  def terminate(reason, socket) do
+    notify_closed(socket, closed_reason(reason))
+    disconnect(socket)
+  end
+
+  defp closed_reason({:shutdown, {:closed, reason}}), do: reason
+  defp closed_reason(reason), do: reason
+
+  defp notify_closed(socket, reason) do
+    %{parent: parent, pending: pending, inflight: inflight, active_subscriptions: active} =
+      socket.assigns
+
+    # An orderly close moves the active subscriptions to pending first, but
+    # a crash skips that step, so they are notified from here as well.
+    for {_sub_id, %Push{pid: pid, ref: ref}} <- active,
+        is_pid(pid),
+        do: send(pid, %Closed{socket: self(), ref: ref, reason: reason})
 
     pushes =
       Enum.map(pending, &{&1, &1.pushed_counter == 0}) ++
@@ -560,7 +585,5 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     end
 
     send(parent, %Closed{socket: self(), ref: nil, reason: reason})
-
-    {:stop, {:shutdown, {:closed, reason}}, socket}
   end
 end

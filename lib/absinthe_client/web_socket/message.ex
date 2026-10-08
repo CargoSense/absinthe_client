@@ -65,9 +65,11 @@ end
 
 defmodule AbsintheClient.WebSocket.Closed do
   @moduledoc """
-  Message sent when the WebSocket stops after the server repeatedly
-  rejects the connection, or after any disconnect when reconnecting is
-  disabled with `reconnect: false`.
+  Message sent when the WebSocket stops on its own: after the server
+  repeatedly rejects the connection, after any disconnect when
+  reconnecting is disabled with `reconnect: false`, or when the socket
+  crashes. It is not sent when the socket is killed from outside or
+  when the `:absinthe_client` application stops.
 
   The socket sends one message per active subscription to the process
   that created it, and one message with a `nil` ref to the parent
@@ -79,7 +81,9 @@ defmodule AbsintheClient.WebSocket.Closed do
 
     * `:ref` - The subscription ref, or `nil` for the parent notification.
 
-    * `:reason` - The reason of the final disconnect.
+    * `:reason` - The reason of the final disconnect, `:shutdown` when
+      the parent exited, or the exit reason of the socket process, such
+      as `{exception, stacktrace}`, when it crashed.
 
   """
   @type t :: %__MODULE__{}

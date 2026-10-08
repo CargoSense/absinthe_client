@@ -276,11 +276,11 @@ defmodule AbsintheClient.WebSocketTest do
 
     # The test waits for the telemetry handler to say the socket is `:closing`.
     # The telemetry handler then blocks the close while waiting for `:resume`.
-    assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
     assert_receive {:closing, ^ws}
 
     assert {:ok, new_ws} = AbsintheClient.WebSocket.connect(req, options)
     send(ws, :resume)
+    assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
 
     refute new_ws == ws
   end

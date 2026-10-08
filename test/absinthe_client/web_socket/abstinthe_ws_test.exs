@@ -248,6 +248,21 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, :closed}}}
   end
 
+  @tag :capture_log
+  test "a crash sends Closed to the parent and the subscribers" do
+    client = start_client!()
+    monitor_ref = Process.monitor(client)
+    sub_id = subscribe!(client)
+    %{assigns: %{active_subscriptions: %{^sub_id => %{ref: ref}}}} = :sys.get_state(client)
+
+    # The handler expects a "result" key, so this message crashes the socket.
+    push(client, sub_id, "subscription:data", %{"unexpected" => true})
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:function_clause, _}}
+    assert_received %Closed{socket: ^client, ref: ^ref, reason: {:function_clause, _}}
+    assert_received %Closed{socket: ^client, ref: nil, reason: {:function_clause, _}}
+  end
+
   test "a parent exit during a connection attempt stops the socket after the attempt" do
     parent = spawn(fn -> receive do: (:exit -> :ok) end)
 

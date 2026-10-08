@@ -78,8 +78,9 @@ instead of a generated atom.
 
   3. Handle `%AbsintheClient.WebSocket.Closed{}` in the process that
      called `connect/2` and in every process that created a subscription.
-     A `nil` ref is the notification to the parent; any other ref names a
-     subscription that is gone:
+     The socket sends it whenever it stops on its own, including after a
+     crash. A `nil` ref is the notification to the parent; any other ref
+     names a subscription that is gone:
 
          def handle_info(%AbsintheClient.WebSocket.Closed{ref: nil, reason: reason}, state) do
            # The socket stopped. Fix the credentials and call connect/2 again.
@@ -173,8 +174,8 @@ instead of a generated atom.
   * Adds `AbsintheClient.WebSocket.Error`.
   * Registers sockets in a `Registry` instead of creating an atom per
     connection.
-  * Restarts the socket supervisor together with the `Registry` so a
-    `Registry` crash cannot leave unregistered sockets behind.
+  * Sends `AbsintheClient.WebSocket.Closed` from `terminate/2`, so a
+    crash in the socket notifies the parent and the subscribers too.
 
 ## v0.2.0 (2026-10-09)
 
