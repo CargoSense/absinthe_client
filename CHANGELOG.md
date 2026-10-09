@@ -1,8 +1,8 @@
 # CHANGELOG
 
-## v0.2.0-dev
+## v0.3.0-dev (Unreleased)
 
-AbsintheClient v0.2 requires Elixir v1.15+ and Req v0.7+.
+AbsintheClient v0.3 requires Elixir v1.15+ and Req v0.7+.
 
 ### WebSocket credential refresh
 
@@ -79,9 +79,9 @@ generated atom.
 
   1. Update your dependency:
 
-         {:absinthe_client, "~> 0.2.0"}
+         {:absinthe_client, "~> 0.3.0"}
 
-     AbsintheClient v0.2 depends on `{:req, "~> 0.7"}`. If your app pins
+     AbsintheClient v0.3 depends on `{:req, "~> 0.7"}`. If your app pins
      an older Req, update it at the same time.
 
   2. `AbsintheClient.WebSocket.connect/1,2` and `connect!/1,2` return a
