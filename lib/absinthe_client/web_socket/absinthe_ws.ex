@@ -146,6 +146,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     socket =
       socket
       |> assign(channel_connected: false, connecting: false)
+      |> fail_inflight(reason)
       |> enqueue_active_subscriptions()
 
     case next_attempt(socket, reason) do
@@ -382,6 +383,27 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   defp push_message(socket, op) do
     Slipstream.push(socket, @control_topic, op.event, op.params)
+  end
+
+  # The server never answers a document sent over a connection that
+  # dropped. A first push is failed at once with a Closed for that push, so
+  # the caller decides whether to send it again, since a mutation may have
+  # run. A re-subscription is known to be safe and goes back to pending.
+  # The reason is classified like a close reason, so a drop reads as
+  # {:disconnected, reason} and a socket that then stops agrees with it.
+  defp fail_inflight(socket, reason) do
+    {resubscribes, firsts} =
+      socket.assigns.inflight
+      |> Map.values()
+      |> Enum.split_with(&(&1.pushed_counter > 1))
+
+    for %Op{event: "doc", ref: ref, cancelled: false} = op <- firsts, is_reference(ref) do
+      send(reply_to(op), %Closed{socket: self(), ref: ref, reason: classify(reason)})
+    end
+
+    socket
+    |> assign(:inflight, %{})
+    |> update(:pending, &(resubscribes ++ &1))
   end
 
   defp enqueue_active_subscriptions(socket) do

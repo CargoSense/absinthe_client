@@ -90,6 +90,47 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     }
   end
 
+  test "a document in flight when the connection drops gets a Closed at once" do
+    client = start_client!()
+    query = "msg:#{System.unique_integer()}"
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, _push_ref
+
+    disconnect(client, :closed)
+
+    assert {:error, %Closed{socket: ^client, ref: ^ref, reason: {:disconnected, :closed}}} =
+             AbsintheClient.WebSocket.await_reply(push, 500)
+
+    # The socket is alive and the document is not re-sent on reconnect.
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    refute_push @control_topic, "doc", %{query: ^query}
+    assert %{assigns: %{inflight: inflight}} = :sys.get_state(client)
+    assert inflight == %{}
+  end
+
+  test "a re-subscription in flight when the connection drops is re-sent" do
+    client = start_client!()
+    sub_id = subscribe!(client)
+
+    %{assigns: %{active_subscriptions: %{^sub_id => %{ref: ref, params: %{query: query}}}}} =
+      :sys.get_state(client)
+
+    disconnect(client, :closed)
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    assert_push @control_topic, "doc", %{query: ^query}, _resub_ref
+
+    # The connection drops again before the server replies.
+    disconnect(client, :closed)
+    refute_received %Closed{ref: ^ref}
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    assert_push @control_topic, "doc", %{query: ^query}, resub_ref
+    reply(client, resub_ref, {:ok, %{"subscriptionId" => new_sub_id = sub_id(client)}})
+
+    push(client, new_sub_id, "subscription:data", %{"result" => %{"ok" => true}})
+    assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: %{"ok" => true}}
+  end
+
   test "enqueues on disconnect and re-subscribes on reconnect" do
     client = start_client!()
 

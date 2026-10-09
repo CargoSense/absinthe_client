@@ -87,20 +87,26 @@ end
 
 defmodule AbsintheClient.WebSocket.Closed do
   @moduledoc """
-  The WebSocket stopped.
+  The WebSocket stopped, or an operation on it is gone.
 
-  The socket sends this message when it stops on its own: after the
-  server repeatedly rejects the connection, after any disconnect when
+  With a `nil` ref the socket itself stopped. It sends this message to
+  the parent process when it stops on its own: after the server
+  repeatedly rejects the connection, after any disconnect when
   reconnecting is disabled with `reconnect: false`, or when the socket
-  crashes. It sends one message per active subscription to the process
-  that created it, and one message with a `nil` ref to the parent
-  process. It is not sent when the socket is killed from outside or
+  crashes. It is not sent when the socket is killed from outside or
   when the `:absinthe_client` application stops.
 
-  The same struct is the error of an operation that got no reply
-  because the socket stopped: `AbsintheClient.WebSocket.await_reply/2`
-  and `Req.request/2` return it in their error tuple, and
-  `AbsintheClient.WebSocket.await_reply!/2` raises it.
+  With a ref the operation with that ref is gone. The socket sends one
+  message per active subscription to the process that created it when
+  the socket stops, and one per document that was in flight when the
+  connection dropped, with the reason `{:disconnected, reason}`. In the
+  second case the socket is still alive and reconnecting, so the
+  document can be pushed again.
+
+  The same struct is the error of an operation that got no reply:
+  `AbsintheClient.WebSocket.await_reply/2` and `Req.request/2` return it
+  in their error tuple, and `AbsintheClient.WebSocket.await_reply!/2`
+  raises it.
 
   ## Fields
 
@@ -109,7 +115,7 @@ defmodule AbsintheClient.WebSocket.Closed do
     * `:ref` - The ref of the subscription or of the awaited push, or
       `nil` for the parent notification.
 
-    * `:reason` - Why the socket stopped:
+    * `:reason` - Why the socket stopped or the operation is gone:
 
         * `{:rejected, %Req.Response{}}` - The server refused the
           connection `:max_rejections` times in a row. The response
@@ -118,8 +124,14 @@ defmodule AbsintheClient.WebSocket.Closed do
         * `{:request_failed, exception}` - The request could not be
           built, for example because the `:auth` function raised.
 
-        * `{:disconnected, reason}` - Reconnecting is disabled and the
-          connection dropped, for example `{:disconnected, :closed}`.
+        * `{:disconnected, reason}` - The connection dropped. The inner
+          reason says why: `:closed` when the server closed it,
+          `:heartbeat_timeout`, `{:send_failure, reason}`, a transport
+          error atom such as `:econnreset`, or a `Mint.TransportError`
+          when a connection attempt failed. For a push, the document
+          was in flight when the connection dropped and the socket is
+          reconnecting. For the parent, reconnecting is disabled and the
+          socket stopped.
 
         * `:noproc` - The socket had already stopped when the document
           was pushed.

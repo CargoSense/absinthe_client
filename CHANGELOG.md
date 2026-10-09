@@ -97,7 +97,8 @@ instead of a generated atom.
      `AbsintheClient.attach/2` or `connect/2`.
 
   4. Expect errors instead of timeouts. When the socket stops while an
-     operation is pending, `Req.request/2` and
+     operation is pending, or the connection drops while a document is
+     in flight, `Req.request/2` and
      `AbsintheClient.WebSocket.await_reply/2` return
      `{:error, %AbsintheClient.WebSocket.Closed{}}`, the same struct the
      socket sends as a message, and `Req.request!/2` and
@@ -192,6 +193,11 @@ instead of a generated atom.
   * Req v0.7 or later is required.
 
 ### Enhancements
+
+  * A document that is in flight when the connection drops gets an
+    `AbsintheClient.WebSocket.Closed` with the reason
+    `{:disconnected, reason}` at once instead of waiting out the receive
+    timeout. Active subscriptions are still re-subscribed on reconnect.
 
   * Re-runs the request steps before every WebSocket connection attempt so
     `auth: fn -> ... end` and `connect_params: fn -> ... end` refresh
