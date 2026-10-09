@@ -426,6 +426,16 @@ defmodule AbsintheClient.WebSocket do
   @doc """
   Performs a GraphQL operation.
 
+  The response status follows what `Absinthe.Plug` returns for the same
+  outcome over HTTP, so Req's response steps behave the same way for
+  both transports. A result is `200` whether or not it has `"errors"`,
+  as in GraphQL over HTTP. A reply that is not a result, for example a
+  bare message when the document could not be processed, is `500`, and
+  Req retries it under the same rules as any other `500`. A reply the
+  server never sends is an `AbsintheClient.WebSocket.Closed` or an
+  `AbsintheClient.WebSocket.Timeout` exception, which Req does not
+  retry.
+
   ## Examples
 
       iex> req = Req.new(base_url: "http://localhost:4002") |> AbsintheClient.attach()
@@ -447,14 +457,18 @@ defmodule AbsintheClient.WebSocket do
 
   defp reply_response(%Request{} = req, %Reply{} = reply) do
     Req.Response.new(
-      status: ws_response_status(reply.status),
+      status: ws_response_status(reply),
       body: ws_response_body(req, reply),
       private: %{ws_push_ref: reply.push_ref}
     )
   end
 
-  defp ws_response_status(:ok), do: 200
-  defp ws_response_status(:error), do: 500
+  # Absinthe.Plug answers 200 for any result, errors included, and 500
+  # for a failure that is not a result. The channel marks both as errors,
+  # so the payload shape tells them apart.
+  defp ws_response_status(%Reply{status: :ok}), do: 200
+  defp ws_response_status(%Reply{status: :error, payload: %{"errors" => _}}), do: 200
+  defp ws_response_status(%Reply{status: :error}), do: 500
 
   defp ws_response_body(_req, %{payload: payload}), do: payload
 

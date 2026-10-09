@@ -291,7 +291,7 @@ defmodule AbsintheClient.WebSocketTest do
 
     req =
       Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
-      |> AbsintheClient.attach(retry: false)
+      |> AbsintheClient.attach()
 
     options = [url: "/auth-socket/websocket", max_rejections: 1]
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
@@ -327,7 +327,7 @@ defmodule AbsintheClient.WebSocketTest do
   test "await_reply/2 returns an error for a push to a closed socket" do
     req =
       Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
-      |> AbsintheClient.attach(retry: false)
+      |> AbsintheClient.attach()
 
     options = [url: "/auth-socket/websocket", max_rejections: 1]
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
@@ -345,7 +345,7 @@ defmodule AbsintheClient.WebSocketTest do
   test "Req.request/2 returns an error for a push to a closed socket" do
     req =
       Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
-      |> AbsintheClient.attach(retry: false)
+      |> AbsintheClient.attach()
 
     options = [url: "/auth-socket/websocket", max_rejections: 1]
     assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)

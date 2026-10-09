@@ -413,9 +413,27 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     end
   end
 
+  test "Req.request/2 returns 200 for a result with errors and 500 for a bare failure" do
+    client = start_client!()
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    task = Task.async(fn -> Req.request!(req, web_socket: client, graphql: "msg") end)
+    assert_push @control_topic, "doc", %{query: "msg"}, push_ref
+    reply(client, push_ref, {:error, %{"errors" => [%{"message" => "bad field"}]}})
+    assert %Req.Response{status: 200, body: %{"errors" => [_]}} = Task.await(task)
+
+    # Only this request may be retried, so Req is told not to.
+    task =
+      Task.async(fn -> Req.request!(req, web_socket: client, graphql: "msg", retry: false) end)
+
+    assert_push @control_topic, "doc", %{query: "msg"}, push_ref
+    reply(client, push_ref, {:error, "internal error"})
+    assert %Req.Response{status: 500, body: "internal error"} = Task.await(task)
+  end
+
   test "Req.request/2 returns an error when the server does not reply in time" do
     client = start_client!()
-    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"), retry: false)
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
 
     assert {:error, %AbsintheClient.WebSocket.Timeout{timeout: 0}} =
              Req.request(req, web_socket: client, graphql: "msg", receive_timeout: 0)

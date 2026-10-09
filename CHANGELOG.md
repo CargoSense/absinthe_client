@@ -206,6 +206,11 @@ generated atom.
     document is in flight, instead of timing out. `Req.request/2` and
     `AbsintheClient.WebSocket.await_reply/2` return it, and
     `AbsintheClient.WebSocket.await_reply!/2` raises it.
+  * `Req.request/2` over a WebSocket returns status `200` for a reply
+    with GraphQL `"errors"`, as `Absinthe.Plug` does over HTTP, instead
+    of `500`. Only a reply that is not a result, such as a bare error
+    message, is `500`. Req's `retry` step no longer re-pushes a document
+    the server answered with errors.
   * `Req.request/2` and `AbsintheClient.WebSocket.await_reply/2` return
     `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the server does
     not reply in time, and `AbsintheClient.WebSocket.await_reply!/2`
