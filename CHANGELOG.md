@@ -43,7 +43,8 @@ response sets the delay.
 
 Two options shape this, named after their Req counterparts.
 `reconnect: false` stops the socket on the first disconnect of any
-kind, and a function decides per disconnect reason. `:reconnect_delay`
+kind, and a function decides per `AbsintheClient.WebSocket.Closed`
+reason. `:reconnect_delay`
 is a number of milliseconds or a function of the attempt count and
 applies to every reconnect.
 

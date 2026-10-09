@@ -34,8 +34,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       exponential backoff with jitter after a rejection.
 
     * `:reconnect` - Optional. `true` to reconnect after a disconnect,
-      `false` to stop on the first one, or a function of the disconnect
-      reason that returns a boolean. Defaults to `true`.
+      `false` to stop on the first one, or a function of the
+      `AbsintheClient.WebSocket.Closed` reason that returns a boolean.
+      Defaults to `true`.
 
     * `:name` - Optional. The name of the socket process.
 
@@ -419,9 +420,10 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   end
 
   # The same switch as Req's `retry: false`: the socket stops on the first
-  # disconnect instead of reconnecting.
+  # disconnect instead of reconnecting. The function sees the Closed reason,
+  # the same term the parent would get, not Slipstream's.
   defp reconnect?(%{assigns: %{reconnect: fun}}, reason) when is_function(fun, 1),
-    do: fun.(reason) == true
+    do: fun.(classify(reason)) == true
 
   defp reconnect?(%{assigns: %{reconnect: reconnect}}, _reason), do: reconnect == true
 

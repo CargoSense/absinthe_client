@@ -135,7 +135,8 @@ defmodule AbsintheClient.WebSocket do
       `true` (default) retries as described in the Reconnecting
       section. `false` stops the socket on the first disconnect of any
       kind, the same as `retry: false` for `Req.Steps.retry/1`. A
-      function receives the disconnect reason and returns a boolean.
+      function receives the reason the `AbsintheClient.WebSocket.Closed`
+      would carry and returns a boolean.
 
     * `:reconnect_delay` - Optional. The time in milliseconds to wait
       before a reconnect attempt, or a function that receives the
@@ -190,15 +191,14 @@ defmodule AbsintheClient.WebSocket do
   attempt. `:reconnect_delay` overrides the delay for every reconnect.
 
   Set `reconnect: false` to stop on the first disconnect instead, or
-  pass a function to decide per disconnect reason. The function
-  receives the reason as Slipstream reports it, for example `:closed`
-  when the server closed the connection or
-  `{:error, {:upgrade_failure, %{status_code: 401}}}` when it refused
-  the upgrade:
+  pass a function to decide per disconnect. The function receives the
+  reason an `AbsintheClient.WebSocket.Closed` would carry, for example
+  `{:rejected, %Req.Response{status: 401}}` when the server refused the
+  upgrade or `{:disconnected, :closed}` when it closed the connection:
 
       AbsintheClient.WebSocket.connect(req,
         reconnect: fn
-          {:error, {:upgrade_failure, %{status_code: 401}}} -> false
+          {:rejected, %{status: 401}} -> false
           _reason -> true
         end
       )

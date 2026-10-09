@@ -279,7 +279,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   test "a reconnect function decides per disconnect reason" do
     client =
       start_client!([uri: "wss://localhost", reconnect_after_msec: [1]],
-        reconnect: &match?({:error, _}, &1)
+        reconnect: &match?({:disconnected, %Mint.TransportError{}}, &1)
       )
 
     monitor_ref = Process.monitor(client)

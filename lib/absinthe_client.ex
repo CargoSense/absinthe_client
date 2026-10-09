@@ -72,7 +72,8 @@ defmodule AbsintheClient do
     * `:reconnect` - Optional. Whether the WebSocket reconnects after a
       disconnect. `false` stops the socket on the first disconnect, the
       same as `retry: false` does for a request. A function receives
-      the disconnect reason and returns a boolean. The default value is
+      the reason an `AbsintheClient.WebSocket.Closed` would carry and
+      returns a boolean. The default value is
       `true`. Refer to `AbsintheClient.WebSocket.connect/1` for more
       information.
 
