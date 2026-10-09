@@ -108,6 +108,26 @@ defmodule AbsintheClient.WebSocketTest do
              :sys.get_state(ws)
   end
 
+  test "connect/2 returns an error when anything but the credentials differs" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, max_rejections: 2)
+
+    assert {:error, %ArgumentError{message: message}} =
+             AbsintheClient.WebSocket.connect(req, max_rejections: 3, reconnect: false)
+
+    assert message =~ "already running with different :max_rejections, :reconnect"
+
+    assert {:error, %ArgumentError{message: message}} =
+             AbsintheClient.WebSocket.connect(req,
+               max_rejections: 2,
+               headers: [{"x-tenant", "a"}]
+             )
+
+    assert message =~ "different :headers"
+    assert {:ok, ^ws} = AbsintheClient.WebSocket.connect(req, max_rejections: 2)
+  end
+
   test "the socket state does not expose the credentials" do
     req =
       Req.new(base_url: "http://localhost:4002", auth: {:bearer, "super-secret-token"})

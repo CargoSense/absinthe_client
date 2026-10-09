@@ -146,8 +146,10 @@ instead of a generated atom.
 
   7. If one process opened two sockets to the same URL with different
      credentials, it now gets one socket that uses the most recent
-     request. Open the sockets from separate parent processes to keep
-     them apart.
+     request. A second `connect/2` that differs in anything other than
+     the credentials, such as `:max_rejections` or a header, returns
+     `{:error, %ArgumentError{}}`. Open the sockets from separate parent
+     processes to keep them apart.
 
   8. `AbsintheClient.WebSocket.push/2` returns an
      `AbsintheClient.WebSocket.Push` instead of a reference, and so does

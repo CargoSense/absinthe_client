@@ -68,7 +68,11 @@ defmodule AbsintheClient.WebSocket do
   The socket is identified by the parent process, the URL, and the
   transport options. Credentials are not part of the identity, so
   connecting again with new credentials re-uses the running socket
-  and the socket adopts the new request on its next reconnect.
+  and the socket adopts the new request on its next reconnect. A
+  second `connect/2` from the same parent to the same URL with any
+  other difference, such as another `:max_rejections` or header,
+  returns `{:error, %ArgumentError{}}`, because the running socket
+  cannot change them.
 
   Options:
 
@@ -278,7 +282,10 @@ defmodule AbsintheClient.WebSocket do
   end
 
   defp start_socket(parent, %Request{} = request, %Config{} = config) do
-    name = {:via, Registry, {AbsintheClient.SocketRegistry, {parent, config.key}}}
+    # The settings a running socket cannot change are kept as the Registry
+    # value, so a second connect/2 can compare them without asking the socket.
+    settings = settings(config)
+    name = {:via, Registry, {AbsintheClient.SocketRegistry, {parent, config.key}, settings}}
 
     child_spec =
       {AbsintheWs,
@@ -294,8 +301,18 @@ defmodule AbsintheClient.WebSocket do
         {:ok, pid}
 
       {:error, {:already_started, pid}} ->
-        send(pid, {:update_request, request})
-        {:ok, pid}
+        case Registry.lookup(AbsintheClient.SocketRegistry, {parent, config.key}) do
+          [{^pid, ^settings}] ->
+            send(pid, {:update_request, request})
+            {:ok, pid}
+
+          [{^pid, running}] ->
+            {:error, settings_error(running, settings)}
+
+          # The socket stopped in between, so the next connect/2 starts a new one.
+          _ ->
+            start_socket(parent, request, config)
+        end
 
       # The socket gave up on its first attempt, so the build error is returned.
       {:error, {:shutdown, {:closed, {:request_failed, exception}}}} ->
@@ -307,6 +324,29 @@ defmodule AbsintheClient.WebSocket do
       {:error, reason} ->
         {:error, %RuntimeError{message: "failed to start WebSocket, got: #{inspect(reason)}"}}
     end
+  end
+
+  defp settings(%Config{} = config) do
+    %{
+      headers: config.slipstream[:headers],
+      mint_opts: config.slipstream[:mint_opts],
+      max_rejections: config.max_rejections,
+      reconnect: config.reconnect,
+      reconnect_delay: config.reconnect_delay
+    }
+  end
+
+  defp settings_error(running, requested) do
+    differing =
+      for {key, value} <- requested, running[key] != value, do: key
+
+    %ArgumentError{
+      message:
+        "a WebSocket for this process and URL is already running with different " <>
+          Enum.map_join(differing, ", ", &inspect/1) <>
+          ". Only the credentials can change on a second connect; " <>
+          "use another parent process for a socket with other options"
+    }
   end
 
   @doc """
