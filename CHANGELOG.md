@@ -6,7 +6,7 @@ AbsintheClient v0.2 requires Elixir v1.15+ and Req v0.7+.
 
 ### WebSocket credential refresh
 
-The socket now runs the request steps again before every connection
+The socket runs the request steps again before every connection
 attempt. Pass a zero-arity function to `:auth` or `:connect_params` and
 the socket calls it each time it connects:
 
@@ -19,39 +19,60 @@ the socket calls it each time it connects:
 
     {:ok, ws} = AbsintheClient.WebSocket.connect(req)
 
-The function always runs inside the socket process, on the first
-connection as well as on every reconnect, and never for an operation
-sent over the socket. Read the token from a shared
-place such as an `Agent`, an ETS table, or a token server, and do not
-call into the parent process from it. A raise in the function counts as
-a rejected connection and is logged with its stacktrace. `connect/2`
-returns `{:ok, pid}` and the socket retries, unless it gives up on the
-first attempt, in which case `connect/2` returns `{:error, exception}`.
+The function runs inside the socket process, on the first connection
+and on every reconnect, and never for an operation sent over the
+socket. Read the token from a shared place such as an `Agent`, an ETS
+table, or a token server, and do not call into the parent process from
+it. A raise in the function counts as a rejected connection and is
+logged with its stacktrace.
 
-When the server still rejects the connection, the socket retries with
-the same exponential backoff with jitter as the `Req.Steps.retry/1`
-step (about 1s, 2s, 4s, 8s, ...), honours a `Retry-After` header on a
-429 response, logs a warning per attempt, and gives up after
-`:max_rejections` consecutive rejections (default `5`). Set
-`:reconnect_delay` to a number of milliseconds or a function of the
-attempt count to change the delay for every reconnect. A rejection is
-an HTTP 4xx response to the upgrade request, or a failure to build the
-request, for example when the `:auth` function raises. The socket
-returns an error to every pending operation, sends an
-`AbsintheClient.WebSocket.Closed` message to the parent process and to
-each subscriber, and stops. Transport errors, such as a refused
-connection, 5xx responses, and the transient 408 and 429 responses are
-not counted and keep the unbounded backoff from v0.1, with a
-`Retry-After` header on a 429 or 503 response setting the delay.
+### Rejected connections
+
+A rejection is an HTTP 4xx response to the upgrade request other than
+408 and 429, or a failure to build the request. The socket retries a
+rejection with the same exponential backoff with jitter as the
+`Req.Steps.retry/1` step, about 1s, 2s, 4s and 8s, logs a warning per
+attempt, and gives up after `:max_rejections` rejections (default `5`)
+without a successful connection in between. In v0.1 a socket with
+rejected credentials retried forever and sent no message.
+
+Everything else keeps the unbounded reconnect from v0.1: a dropped
+connection, a refused or timed-out transport, a 5xx response, and the
+transient 408 and 429 responses. A `Retry-After` header on a 429 or 503
+response sets the delay.
+
+Two options shape this, named after their Req counterparts.
+`reconnect: false` stops the socket on the first disconnect of any
+kind, and a function decides per disconnect reason. `:reconnect_delay`
+is a number of milliseconds or a function of the attempt count and
+applies to every reconnect.
+
+### Closed and Timeout
+
+`AbsintheClient.WebSocket.Closed` is both a message and an error. The
+socket sends it to the parent process with a `nil` ref when it stops,
+and to the owner of a subscription or of an in-flight document with
+that ref when the operation is gone. `Req.request/2` and
+`AbsintheClient.WebSocket.await_reply/2` return it in their error
+tuple, and `Req.request!/2` and `AbsintheClient.WebSocket.await_reply!/2`
+raise it. After a `Closed` with a `nil` ref the socket is gone and
+`connect/2` is the way back. After a `Closed` with a ref only that
+operation is gone.
+
+`AbsintheClient.WebSocket.Timeout` is the error when the server does not
+reply in time. The socket is still usable, so the operation can be sent
+again. The socket cancels the timed-out push: a late reply is discarded
+and a subscription it created is unsubscribed at once.
 
 ### Socket identity
 
-Sockets are now registered in a `Registry` under the parent process,
-the URL, and the transport options. Credentials are not part of the key,
-so a second `AbsintheClient.WebSocket.connect/2` call from the same
-process with a new token re-uses the running socket and hands it the new
-request for its next reconnect. `connect/1,2` return the socket `pid()`
-instead of a generated atom.
+Sockets are registered in a `Registry` under the parent process, the
+URL, and the transport options. Credentials are not part of the key, so
+a second `AbsintheClient.WebSocket.connect/2` from the same process with
+a new token re-uses the running socket and hands it the new request for
+its next reconnect. A second `connect/2` that differs in anything else
+returns an error. `connect/1,2` return the socket `pid()` instead of a
+generated atom.
 
 ### Upgrading from v0.1.x
 
@@ -80,7 +101,8 @@ instead of a generated atom.
      called `connect/2` and in every process that created a subscription.
      The socket sends it whenever it stops on its own, including after a
      crash. A `nil` ref is the notification to the parent; any other ref
-     names a subscription that is gone:
+     names a subscription, or a document that was in flight when the
+     connection dropped, that is gone:
 
          def handle_info(%AbsintheClient.WebSocket.Closed{ref: nil, reason: reason}, state) do
            # The socket stopped. Fix the credentials and call connect/2 again.
@@ -88,21 +110,19 @@ instead of a generated atom.
          end
 
          def handle_info(%AbsintheClient.WebSocket.Closed{ref: ref}, state) do
-           # The subscription with this ref is gone.
+           # The subscription with this ref is gone. Push the document again.
            {:noreply, state}
          end
 
-     In v0.1 a socket with rejected credentials retried forever and sent
-     no message. To keep retrying for longer, raise `:max_rejections` on
+     To keep retrying for longer, raise `:max_rejections` on
      `AbsintheClient.attach/2` or `connect/2`.
 
   4. Expect errors instead of timeouts. When the socket stops while an
      operation is pending, or the connection drops while a document is
      in flight, `Req.request/2` and
      `AbsintheClient.WebSocket.await_reply/2` return
-     `{:error, %AbsintheClient.WebSocket.Closed{}}`, the same struct the
-     socket sends as a message, and `Req.request!/2` and
-     `AbsintheClient.WebSocket.await_reply!/2` raise it. Req does not
+     `{:error, %AbsintheClient.WebSocket.Closed{}}`, and `Req.request!/2`
+     and `AbsintheClient.WebSocket.await_reply!/2` raise it. Req does not
      retry it. A push to a socket that has already stopped gets a
      `Closed` with the reason `:noproc`. When the server does not reply
      in time the error is `%AbsintheClient.WebSocket.Timeout{}`. Code
@@ -135,7 +155,7 @@ instead of a generated atom.
      Static tuples and maps still work. They are sent on every reconnect
      but never refreshed.
 
-  6. If you start `AbsintheClient.WebSocket.AbsintheWs` directly, for
+  6. If you start the internal socket module, `AbsintheWs`, directly, for
      example in tests, switch to the keyword form:
 
          # before
@@ -173,12 +193,17 @@ instead of a generated atom.
 
   * `AbsintheClient.WebSocket.connect/1,2` return a `pid()` instead of a
     registered name.
-  * Sockets stop after `:max_rejections` consecutive rejections (HTTP 4xx
-    responses other than 408 and 429, or request build failures) and send
+  * Sockets stop after `:max_rejections` rejections (HTTP 4xx responses
+    other than 408 and 429, or request build failures) without a
+    successful connection in between, and send
     `AbsintheClient.WebSocket.Closed` instead of retrying forever.
+  * A second `AbsintheClient.WebSocket.connect/2` from the same process
+    to the same URL returns `{:error, %ArgumentError{}}` when anything
+    other than the credentials differs.
   * Pending operations receive `{:error, %AbsintheClient.WebSocket.Closed{}}`
-    when the socket stops instead of timing out, from `Req.request/2` and
-    `AbsintheClient.WebSocket.await_reply/2` alike, and
+    when the socket stops, or when the connection drops while the
+    document is in flight, instead of timing out. `Req.request/2` and
+    `AbsintheClient.WebSocket.await_reply/2` return it, and
     `AbsintheClient.WebSocket.await_reply!/2` raises it.
   * `Req.request/2` and `AbsintheClient.WebSocket.await_reply/2` return
     `{:error, %AbsintheClient.WebSocket.Timeout{}}` when the server does
@@ -190,38 +215,38 @@ instead of a generated atom.
   * A reply that arrives after `AbsintheClient.WebSocket.await_reply/2`
     timed out is discarded instead of delivered to the caller's mailbox,
     and a subscription it created is unsubscribed.
-  * `AbsintheClient.WebSocket.AbsintheWs.start_link/1` takes a keyword list.
+  * `AbsintheClient.WebSocket.Message` no longer has a `:push_ref` field.
+    It was never set.
+  * The internal socket module, `AbsintheWs`, takes a keyword list in
+    `start_link/1`.
   * Elixir v1.15 or later is required.
   * Req v0.7 or later is required.
 
 ### Enhancements
 
-  * A document that is in flight when the connection drops gets an
-    `AbsintheClient.WebSocket.Closed` with the reason
-    `{:disconnected, reason}` at once instead of waiting out the receive
-    timeout. Active subscriptions are still re-subscribed on reconnect.
-
-  * Re-runs the request steps before every WebSocket connection attempt so
-    `auth: fn -> ... end` and `connect_params: fn -> ... end` refresh
-    expired tokens.
+  * Re-runs the request steps before every WebSocket connection attempt,
+    inside the socket process, so `auth: fn -> ... end` and
+    `connect_params: fn -> ... end` refresh expired tokens.
   * Re-uses the running socket when the same parent connects again with
-    new credentials, and adopt the new request for the next reconnect.
-  * Adds the `:max_rejections` and `:reconnect_delay` options.
-  * Adds the `:reconnect` option. `reconnect: false` stops the socket on
-    the first disconnect, the same as `retry: false` does for a request,
-    and a function decides per disconnect reason.
-  * Adds `AbsintheClient.WebSocket.Closed`.
-  * `AbsintheClient.WebSocket.await_reply/2` returns
-    `{:error, %AbsintheClient.WebSocket.Closed{}}` as soon as the socket
-    exits instead of waiting for the timeout.
+    new credentials, and adopts the new request for the next reconnect.
+  * Retries rejected connections with exponential backoff and jitter,
+    honours `Retry-After`, and logs each failed upgrade.
+  * Adds the `:max_rejections`, `:reconnect` and `:reconnect_delay`
+    options.
+  * Adds `AbsintheClient.WebSocket.Closed`, sent when the socket stops,
+    including after a crash, and when a subscription or an in-flight
+    document is gone, and returned as the error of a pending operation.
   * Adds `AbsintheClient.WebSocket.Timeout`.
   * Adds `AbsintheClient.WebSocket.Push`, and cancels a push when
     `AbsintheClient.WebSocket.await_reply/2` times out, so a late
     subscription reply is unsubscribed instead of delivering data.
+  * Fails a document that is in flight when the connection drops at
+    once, instead of leaving the caller to wait out the receive timeout.
+    Active subscriptions are still re-subscribed on reconnect.
   * Registers sockets in a `Registry` instead of creating an atom per
     connection.
-  * Sends `AbsintheClient.WebSocket.Closed` from `terminate/2`, so a
-    crash in the socket notifies the parent and the subscribers too.
+  * Keeps credentials out of the socket state, so they do not appear in
+    crash reports.
 
 ## v0.2.0 (2026-10-09)
 

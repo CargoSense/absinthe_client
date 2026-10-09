@@ -37,14 +37,26 @@ defmodule AbsintheClient.WebSocket do
 
   ## Handling messages
 
-  Results will be sent to the caller as
-  [`WebSocket.Message`](`AbsintheClient.WebSocket.Message`) structs.
+  Subscription results are sent to the process that created the
+  subscription as [`WebSocket.Message`](`AbsintheClient.WebSocket.Message`)
+  structs, and the socket sends [`WebSocket.Closed`](`AbsintheClient.WebSocket.Closed`)
+  when it stops or a subscription is gone.
 
-  In a `GenServer` for instance, you would implement a
-  [`handle_info/2`](`c:GenServer.handle_info/2`) callback:
+  In a `GenServer` for instance, you would implement
+  [`handle_info/2`](`c:GenServer.handle_info/2`) callbacks:
 
-      def handle_info(%AbsintheClient.WebSocket.Message{payload: payload}, state) do
-        # code...
+      def handle_info(%AbsintheClient.WebSocket.Message{ref: ref, payload: payload}, state) do
+        # A result for the subscription created by the push with this ref.
+        {:noreply, state}
+      end
+
+      def handle_info(%AbsintheClient.WebSocket.Closed{ref: nil}, state) do
+        # The socket stopped. Call connect/2 again.
+        {:noreply, state}
+      end
+
+      def handle_info(%AbsintheClient.WebSocket.Closed{ref: ref}, state) do
+        # The subscription with this ref is gone. Push the document again.
         {:noreply, state}
       end
 
@@ -62,8 +74,8 @@ defmodule AbsintheClient.WebSocket do
   @default_socket_url "/socket/websocket"
 
   @doc """
-  Dynamically starts (or re-uses already started) AbsintheWs
-  process with the given options.
+  Starts a WebSocket process, or re-uses the one already running for
+  this process and URL, and returns its pid.
 
   The socket is identified by the parent process, the URL, and the
   transport options. Credentials are not part of the identity, so
@@ -74,7 +86,12 @@ defmodule AbsintheClient.WebSocket do
   returns `{:error, %ArgumentError{}}`, because the running socket
   cannot change them.
 
-  Options:
+  When `connect/2` returns `{:ok, pid}` the socket process is running
+  and its first connection attempt has been made. The socket connects
+  to the server and joins the control topic on its own, and documents
+  pushed before then wait for it.
+
+  ## Options
 
     * `:url` - URL where to make the WebSocket connection. When
       provided as an option to `connect/2` the request's `base_url`
@@ -109,38 +126,31 @@ defmodule AbsintheClient.WebSocket do
       returns a map. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
 
-    * `:max_rejections` - Optional. The number of consecutive times the
-      server may reject the connection (HTTP 4xx on upgrade, except
-      408 and 429) before the
-      socket stops. Defaults to `5`. Refer to the Token refresh section
-      for more information.
-
-    * `:reconnect_delay` - Optional. The time in milliseconds to wait
-      before a reconnect attempt, or a function that receives the
-      number of consecutive attempts (starting at `0`) and returns it,
-      the same as `:retry_delay` for `Req.Steps.retry/1`. By default a
-      transport failure follows Slipstream's backoff and a rejected
-      connection follows exponential backoff with jitter. Refer to the
-      Token refresh section for more information.
+    * `:max_rejections` - Optional. The number of times the server may
+      reject the connection, without a successful connection in
+      between, before the socket stops. Defaults to `5`. Refer to the
+      Reconnecting section for what counts as a rejection.
 
     * `:reconnect` - Optional. Whether to reconnect after a disconnect.
-      `true` (default) retries as described in the Token refresh
+      `true` (default) retries as described in the Reconnecting
       section. `false` stops the socket on the first disconnect of any
       kind, the same as `retry: false` for `Req.Steps.retry/1`. A
       function receives the disconnect reason and returns a boolean.
+
+    * `:reconnect_delay` - Optional. The time in milliseconds to wait
+      before a reconnect attempt, or a function that receives the
+      number of attempts since the last successful connection (starting
+      at `0`) and returns it, the same as `:retry_delay` for
+      `Req.Steps.retry/1`. Refer to the Reconnecting section for the
+      default.
 
     * `:parent` - pid of the process starting the connection.
       The socket monitors this process and shuts down when
       the parent process exits. Defaults to `self()`.
 
-  Note that when `connect/2` returns successfully, it indicates that
-  the WebSocket process has started. The process must then connect
-  to the GraphQL server and join the relevant topic(s) before it can
-  send and receive messages.
-
   ## Token refresh
 
-  The socket re-runs the request steps before every connection
+  The socket runs the request steps again before every connection
   attempt, so a zero-arity function given to `:auth` or
   `:connect_params` is called each time the socket connects or
   reconnects:
@@ -154,36 +164,37 @@ defmodule AbsintheClient.WebSocket do
 
       {:ok, ws} = AbsintheClient.WebSocket.connect(req)
 
-  The function always runs inside the socket process, on the first
-  connection as well as on every reconnect, and never for an operation
-  sent over the socket. It must read the token
-  from a shared place such as an `Agent`, an ETS table, or a token
-  server. It must not call into the parent process: `connect/2` waits
-  for the first attempt, and later the parent may be waiting on the
-  socket while the socket waits on the function. A raise in the
-  function counts as a rejected connection and is logged with its
-  stacktrace. When the socket gives up on the first attempt, because
-  `:max_rejections` is `1` or `:reconnect` is `false`, `connect/2`
-  returns `{:error, exception}` instead.
+  The function runs inside the socket process, on the first connection
+  and on every reconnect, and never for an operation sent over the
+  socket. It must read the token from a shared place such as an
+  `Agent`, an ETS table, or a token server. It must not call into the
+  parent process: `connect/2` waits for the first attempt, and later
+  the parent may be waiting on the socket while the socket waits on the
+  function. A raise in the function counts as a rejected connection and
+  is logged with its stacktrace.
 
-  Transport failures, 5xx responses, and the transient 408 and 429
-  responses retry with Slipstream's backoff until the parent process
-  exits. A rejected connection, that is any other HTTP 4xx status on
-  the upgrade request or a request step that raises, retries with the
-  same backoff as the `Req.Steps.retry/1` step: about 1s, 2s, 4s, 8s
-  and so on, with jitter. A `Retry-After` header on a 429 or 503
-  response sets the delay instead. Each failed upgrade logs a
-  warning. After
-  `:max_rejections` rejections in a row the socket sends an
-  `AbsintheClient.WebSocket.Closed` message to the parent and to each
-  subscriber, returns the same `Closed` struct as the error of any
-  pending operation, and stops. Calling
-  `connect/2` again starts a new socket. The socket sends the same
-  `Closed` message when it crashes. Only a kill from outside or a stop
-  of the `:absinthe_client` application ends a socket without one.
+  ## Reconnecting
+
+  A dropped connection, a refused or timed-out transport, a 5xx
+  response, and the transient 408 and 429 responses reconnect with
+  Slipstream's backoff for as long as the parent process lives. A
+  `Retry-After` header on a 429 or 503 response sets the delay instead.
+
+  A rejected connection, that is any other HTTP 4xx status on the
+  upgrade request or a request step that raises, reconnects with the
+  same exponential backoff with jitter as the `Req.Steps.retry/1` step:
+  about 1s, 2s, 4s, 8s and so on. After `:max_rejections` rejections
+  without a successful connection in between, the socket stops.
+
+  Each failed upgrade logs a warning with the delay before the next
+  attempt. `:reconnect_delay` overrides the delay for every reconnect.
 
   Set `reconnect: false` to stop on the first disconnect instead, or
-  pass a function to decide per disconnect reason:
+  pass a function to decide per disconnect reason. The function
+  receives the reason as Slipstream reports it, for example `:closed`
+  when the server closed the connection or
+  `{:error, {:upgrade_failure, %{status_code: 401}}}` when it refused
+  the upgrade:
 
       AbsintheClient.WebSocket.connect(req,
         reconnect: fn
@@ -191,6 +202,25 @@ defmodule AbsintheClient.WebSocket do
           _reason -> true
         end
       )
+
+  ## When the socket stops
+
+  When the socket gives up, it sends an `AbsintheClient.WebSocket.Closed`
+  message with a `nil` ref to the parent process and one with the
+  subscription ref to the owner of each active subscription, returns
+  the same `Closed` struct as the error of every pending operation,
+  and exits. It does the same when it crashes. Only a kill from outside
+  or a stop of the `:absinthe_client` application ends a socket without
+  a `Closed`. Calling `connect/2` again starts a new socket.
+
+  When the socket gives up on its first attempt, because
+  `:max_rejections` is `1` or `:reconnect` is `false`, `connect/2`
+  returns `{:error, exception}` instead and no `Closed` is sent.
+
+  A document that is in flight when the connection drops gets a
+  `Closed` with the reason `{:disconnected, reason}` at once. The socket
+  stays alive and reconnects, and the document can be pushed again.
+  Active subscriptions are re-subscribed after the reconnect.
 
   ## Examples
 
@@ -429,13 +459,13 @@ defmodule AbsintheClient.WebSocket do
   defp ws_response_body(_req, %{payload: payload}), do: payload
 
   @doc """
-  Pushes a `query` to the server via the given `socket`.
+  Pushes a document to the server via the given `socket`.
 
   Returns an `AbsintheClient.WebSocket.Push` to pass to `await_reply/2`.
-  Its ref is also a monitor on the socket. The reply removes the
-  monitor. If the socket exits before it replies, the caller receives a
-  `{:DOWN, ref, :process, socket, reason}` message instead, which
-  `await_reply/2` returns as `{:error, %AbsintheClient.WebSocket.Closed{}}`.
+  The server's reply arrives as an `AbsintheClient.WebSocket.Reply`
+  message with the push's ref. If the socket stops first, the caller
+  receives an `AbsintheClient.WebSocket.Closed` with that ref instead,
+  and `await_reply/2` returns either one.
 
   ## Examples
 

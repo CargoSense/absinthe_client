@@ -11,7 +11,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @transient_statuses [408, 429]
 
   @doc """
-  Starts a Absinthe client process with the given options:
+  Starts an Absinthe client process with the given options:
 
     * `:parent` - Required. The pid of the process that owns the socket.
 
@@ -23,14 +23,15 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
       `:request` is given, in which case it is ignored and the socket
       builds the options from the request.
 
-    * `:max_rejections` - Optional. Consecutive rejected connection
-      attempts before the socket stops. Defaults to `5`.
+    * `:max_rejections` - Optional. Rejected connection attempts,
+      without a successful connection in between, before the socket
+      stops. Defaults to `5`.
 
     * `:reconnect_delay` - Optional. Milliseconds to wait before a
-      reconnect attempt, or a function of the consecutive attempt count
-      (starting at 0) that returns them. Defaults to Slipstream's backoff
-      after a transport failure and to exponential backoff with jitter
-      after a rejection.
+      reconnect attempt, or a function of the attempt count since the
+      last successful connection (starting at 0) that returns them.
+      Defaults to Slipstream's backoff after a transport failure and to
+      exponential backoff with jitter after a rejection.
 
     * `:reconnect` - Optional. `true` to reconnect after a disconnect,
       `false` to stop on the first one, or a function of the disconnect

@@ -11,14 +11,15 @@ A GraphQL client designed for Elixir [Absinthe][absinthe].
 - Performs `query` and `mutation` operations via JSON POST requests.
 - Performs `subscription` operations over WebSockets ([Absinthe Phoenix][absinthe_phoenix]).
 - Automatically re-establishes subscriptions on socket disconnect/reconnect.
-- Refreshes credentials before every WebSocket connection attempt.
+- Refreshes credentials before every WebSocket connection attempt, and tells
+  you when the server keeps rejecting them.
 - Supports virtually all [`Req.request/1`][request] options, notably:
   - Bearer authentication (via the [`auth`][req_auth] step).
   - Retries on errors (via the [`retry`][req_retry] step).
 
 ## Usage
 
-The fastest way to use AbsintheClient is with [`Mix.install/2`][install] (requires Elixir v1.12+):
+The fastest way to use AbsintheClient is with [`Mix.install/2`][install] (requires Elixir v1.15+):
 
 ```elixir
 Mix.install([
@@ -60,7 +61,7 @@ req = Req.new(base_url: base_url) |> AbsintheClient.attach()
 ws = AbsintheClient.WebSocket.connect!(req, url: "/socket/websocket")
 
 Req.request!(req, web_socket: ws, graphql: "subscription ...").body
-#=> %AbsintheClient.WebSocket.Subscription{}
+#=> %AbsintheClient.Subscription{}
 ```
 
 Note that although AbsintheClient _can_ use the `:web_socket` option to execute
@@ -82,11 +83,11 @@ base_url = "https://my-absinthe-server"
 auth = {:bearer, "token"}
 req = Req.new(base_url: base_url, auth: auth) |> AbsintheClient.attach()
 
-# ?Authentication=Bearer+token will be sent on the connect request.
-ws = AbsintheClient.WebSocket.connect(req, url: "/socket/websocket")
+# ?Authorization=Bearer+token is sent with the connect request.
+ws = AbsintheClient.WebSocket.connect!(req, url: "/socket/websocket")
 ```
 
-Tokens expire. Pass a zero-arity function to `:auth` (or
+Tokens expire. Pass a zero-arity function to `:auth` (or to
 `:connect_params`) and the socket calls it before every connection
 attempt, so a reconnect always sends the current token:
 
@@ -99,11 +100,12 @@ ws = AbsintheClient.WebSocket.connect!(req, url: "/socket/websocket")
 ```
 
 If the server keeps rejecting the connection, the socket retries with
-exponential backoff and stops after
-`:max_rejections` consecutive attempts (default `5`) and sends an
-`AbsintheClient.WebSocket.Closed` message to the parent process and
-to every subscriber. Refer to [`AbsintheClient.WebSocket.connect/1`][websocket]
-for more information.
+exponential backoff, gives up after `:max_rejections` rejections (default
+`5`), and sends an `AbsintheClient.WebSocket.Closed` message to the process
+that connected it and to every subscriber. Any operation waiting on the
+socket gets the same `Closed` as its error. Refer to
+[`AbsintheClient.WebSocket.connect/1`][websocket] for the retry policy and
+the `:reconnect` and `:reconnect_delay` options.
 
 If you use your client to authenticate then you can set `:auth` by merging
 options:

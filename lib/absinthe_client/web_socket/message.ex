@@ -1,18 +1,24 @@
 defmodule AbsintheClient.WebSocket.Reply do
   @moduledoc """
-  Reply sent from GraphQL servers to clients in response to a pushed document.
+  The server's reply to a pushed document.
 
-  The message format requires the following keys:
+  The socket sends it to the process that pushed the document.
+  `AbsintheClient.WebSocket.await_reply/2` receives it for you.
 
-    * `:event` - The string event name that was pushed, for example `"doc"`.
+  ## Fields
 
-    * `:status` - The reply status as an atom.
+    * `:event` - The event that was pushed, `"doc"` for a document and
+      `"unsubscribe"` for an unsubscribe.
 
-    * `:payload` - The reply payload.
+    * `:status` - `:ok` or `:error`.
 
-    * `:ref` - A unique term defined by the user when pushing or nil if none was provided.
+    * `:payload` - The GraphQL result, an `AbsintheClient.Subscription`
+      when the document created a subscription, or the errors.
 
-    * `:push_ref` - The unique ref ref when pushing.
+    * `:ref` - The ref of the `AbsintheClient.WebSocket.Push`, or `nil`
+      for an unsubscribe without one.
+
+    * `:push_ref` - The ref the channel assigned to the push.
 
   """
   @type t :: %__MODULE__{}
@@ -21,23 +27,25 @@ end
 
 defmodule AbsintheClient.WebSocket.Message do
   @moduledoc """
-  Message sent from the server to the client.
+  A subscription result pushed by the server.
 
-  The message format requires the following keys:
+  The socket sends it to the process that created the subscription.
 
-    * `:topic` - The string topic.
+  ## Fields
 
-    * `:event`- The string event name, for example `"subscription:data"`.
+    * `:topic` - The subscription id, which is also the channel topic.
 
-    * `:payload` - The message payload.
+    * `:event` - The event name, `"subscription:data"`.
 
-    * `:ref` - A unique term defined by the user when pushing or nil if none was provided.
+    * `:payload` - The GraphQL result, a map with `"data"` and
+      sometimes `"errors"`.
 
-    * `:push_ref` - The unique ref when pushing.
+    * `:ref` - The ref of the `AbsintheClient.WebSocket.Push` that
+      created the subscription.
 
   """
   @type t :: %__MODULE__{}
-  defstruct [:topic, :event, :payload, :ref, :push_ref]
+  defstruct [:topic, :event, :payload, :ref]
 end
 
 defmodule AbsintheClient.WebSocket.Op do

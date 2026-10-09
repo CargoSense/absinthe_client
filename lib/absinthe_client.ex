@@ -29,8 +29,8 @@ defmodule AbsintheClient do
 
   WebSocket options:
 
-    * `:web_socket` - Optional. The name of a WebSocket process to
-      perform the operation, usually started by
+    * `:web_socket` - Optional. The pid of the WebSocket process to
+      perform the operation, as returned by
       `AbsintheClient.WebSocket.connect/1`. Refer to the Subscriptions
       section for more information.
 
@@ -55,10 +55,11 @@ defmodule AbsintheClient do
       returns a map. Defaults to sending the bearer Authorization
       token if one is present on the request. The default value is `nil`.
 
-    * `:max_rejections` - Optional. The number of consecutive times the
-      server may reject the WebSocket connection before the socket
-      stops. The default value is `5`. Refer to
-      `AbsintheClient.WebSocket.connect/1` for more information.
+    * `:max_rejections` - Optional. The number of times the server may
+      reject the WebSocket connection, without a successful connection
+      in between, before the socket stops. The default value is `5`.
+      Refer to `AbsintheClient.WebSocket.connect/1` for more
+      information.
 
     * `:reconnect_delay` - Optional. The time in milliseconds to wait
       before the WebSocket reconnects, or a function of the attempt
@@ -318,25 +319,47 @@ defmodule AbsintheClient do
 
   ### Subscription data
 
-  Results will be sent to the caller as
+  Results are sent to the process that created the subscription as
   [`WebSocket.Message`](`AbsintheClient.WebSocket.Message`) structs.
+  The `:ref` is the ref of the `AbsintheClient.WebSocket.Push` that
+  created the subscription, and the `:payload` is the GraphQL result.
 
   In a GenServer for instance, you would implement a
   [`handle_info/2`](`c:GenServer.handle_info/2`) callback:
 
       @impl GenServer
       def handle_info(%AbsintheClient.WebSocket.Message{event: "subscription:data", payload: payload}, state) do
-        case payload["result"] do
+        case payload do
           %{"errors" => errors} ->
-            raise "Received result with errors, got: \#{inspect(result["errors"])}"
+            raise "Received result with errors, got: \#{inspect(errors)}"
 
           %{"data" => data} ->
-            text = get_in(result, ~w(data repoCommentSubscribe commentary))
+            text = get_in(data, ~w(repoCommentSubscribe commentary))
             IO.puts("Received a new comment: \#{text}")
         end
 
         {:noreply, state}
       end
+
+  ### Closed sockets
+
+  The socket sends an `AbsintheClient.WebSocket.Closed` message when it
+  stops, with a `nil` ref, and when a subscription is gone, with the
+  ref of that subscription:
+
+      @impl GenServer
+      def handle_info(%AbsintheClient.WebSocket.Closed{ref: nil, reason: reason}, state) do
+        # The socket stopped. Call AbsintheClient.WebSocket.connect/2 again.
+        {:noreply, state}
+      end
+
+      def handle_info(%AbsintheClient.WebSocket.Closed{ref: ref}, state) do
+        # The subscription with this ref is gone. Push the document again.
+        {:noreply, state}
+      end
+
+  Refer to `AbsintheClient.WebSocket.Closed` for the reasons and to
+  `AbsintheClient.WebSocket.connect/1` for when the socket stops.
 
   """
   @spec attach(Request.t(), keyword()) :: Request.t()

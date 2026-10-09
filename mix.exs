@@ -69,7 +69,7 @@ defmodule AbsintheClient.MixProject do
       source_url: @source_url,
       deps: [],
       language: "en",
-      groups_for_functions: [
+      groups_for_docs: [
         "Request steps": &(&1[:step] == :request),
         "Response steps": &(&1[:step] == :response),
         "Error steps": &(&1[:step] == :error)
