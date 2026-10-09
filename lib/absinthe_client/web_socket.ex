@@ -185,7 +185,7 @@ defmodule AbsintheClient.WebSocket do
   def connect(%Request{} = request, options) when is_list(options) do
     {parent, options} = Keyword.split(options, [:parent])
 
-    %{request | adapter: &run_ws_options/1}
+    %{request | adapter: __MODULE__.ConnectAdapter}
     |> Request.register_options([:parent])
     |> Request.merge_options(parent)
     |> Req.request([url: @default_socket_url] ++ options)
@@ -195,7 +195,14 @@ defmodule AbsintheClient.WebSocket do
     end
   end
 
-  defp run_ws_options(%Request{} = req) do
+  defmodule ConnectAdapter do
+    # Req calls run/1 on a module adapter. Function adapters are deprecated.
+    @moduledoc false
+    defdelegate run(req), to: AbsintheClient.WebSocket, as: :run_ws_options
+  end
+
+  @doc false
+  def run_ws_options(%Request{} = req) do
     parent = Map.get(req.options, :parent, self())
 
     req = update_in(req.url.scheme, &String.replace(&1, "http", "ws"))
