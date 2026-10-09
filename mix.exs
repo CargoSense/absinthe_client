@@ -1,7 +1,7 @@
 defmodule AbsintheClient.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0-dev"
   @source_url "https://github.com/CargoSense/absinthe_client"
 
   def project do
@@ -69,7 +69,7 @@ defmodule AbsintheClient.MixProject do
       source_url: @source_url,
       deps: [],
       language: "en",
-      groups_for_functions: [
+      groups_for_docs: [
         "Request steps": &(&1[:step] == :request),
         "Response steps": &(&1[:step] == :response),
         "Error steps": &(&1[:step] == :error)
@@ -77,8 +77,11 @@ defmodule AbsintheClient.MixProject do
       groups_for_modules: [
         Structures: [
           AbsintheClient.Subscription,
+          AbsintheClient.WebSocket.Closed,
           AbsintheClient.WebSocket.Message,
-          AbsintheClient.WebSocket.Reply
+          AbsintheClient.WebSocket.Push,
+          AbsintheClient.WebSocket.Reply,
+          AbsintheClient.WebSocket.Timeout
         ]
       ]
     ]
