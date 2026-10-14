@@ -4,18 +4,21 @@ updates:
   - package-ecosystem: "devcontainers"
     labels:
       - "dependabot"
+      - "dependencies"
     directory: "/"
     schedule:
       interval: "monthly"
   - package-ecosystem: "github-actions"
     labels:
       - "dependabot"
+      - "dependencies"
     directory: "/"
     schedule:
       interval: "monthly"
   - package-ecosystem: "mix"
     labels:
       - "dependabot"
+      - "dependencies"
     directory: "/"
     schedule:
       interval: "monthly"
