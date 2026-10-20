@@ -1,40 +1,90 @@
 defmodule AbsintheClient.WebSocket.AbsintheWs do
   @moduledoc false
   use Slipstream, restart: :temporary
-  alias AbsintheClient.WebSocket.{Push, Reply}
+  require Logger
+  alias AbsintheClient.WebSocket.{Closed, Config, Op, Reply}
+  alias AbsintheClient.WebSocket.Config.Source
 
   @control_topic "__absinthe__:control"
 
+  # The same statuses Req's retry step treats as transient below 500.
+  @transient_statuses [408, 429]
+
   @doc """
-  Starts a Absinthe client process.
+  Starts an Absinthe client process with the given options:
+
+    * `:parent` - Required. The pid of the process that owns the socket.
+
+    * `:request` - The `Req.Request` to run before each connection
+      attempt, the first one included. Required unless `:config` is
+      given.
+
+    * `:config` - The `Slipstream` connection options. Required unless
+      `:request` is given, in which case it is ignored and the socket
+      builds the options from the request.
+
+    * `:max_rejections` - Optional. Rejected connection attempts,
+      without a successful connection in between, before the socket
+      stops. Defaults to `5`.
+
+    * `:reconnect_delay` - Optional. Milliseconds to wait before a
+      reconnect attempt, or a function of the attempt count since the
+      last successful connection (starting at 0) that returns them.
+      Defaults to Slipstream's backoff after a transport failure and to
+      exponential backoff with jitter after a rejection.
+
+    * `:reconnect` - Optional. `true` to reconnect after a disconnect,
+      `false` to stop on the first one, or a function of the
+      `AbsintheClient.WebSocket.Closed` reason that returns a boolean.
+      Defaults to `true`.
+
+    * `:name` - Optional. The name of the socket process.
 
   ## Examples
 
-      AbsintheClient.WebSocket.AbsintheWs.start_link({self(), url: "wss://example.com/subscriptions/websocket"})
+      AbsintheClient.WebSocket.AbsintheWs.start_link(
+        parent: self(),
+        config: [uri: "wss://example.com/subscriptions/websocket"]
+      )
 
   """
-  @spec start_link({pid(), config :: Keyword.t()}) :: GenServer.on_start()
-  @spec start_link({pid(), config :: Keyword.t(), genserver_options :: GenServer.options()}) ::
-          GenServer.on_start()
-  def start_link(config) when is_list(config), do: start_link({self(), config, []})
-  def start_link({parent, config}) when is_pid(parent), do: start_link({parent, config, []})
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(options) when is_list(options) do
+    with :ok <- validate_start(options) do
+      Slipstream.start_link(__MODULE__, options, Keyword.take(options, [:name]))
+    end
+  end
 
-  def start_link({parent, config, options}) do
-    with {:ok, _config} <- Slipstream.Configuration.validate(config) do
-      Slipstream.start_link(__MODULE__, {parent, config}, options)
+  defp validate_start(options) do
+    case {Keyword.fetch(options, :request), Keyword.fetch(options, :config)} do
+      {{:ok, %Req.Request{}}, _} ->
+        :ok
+
+      {:error, {:ok, config}} ->
+        with {:ok, _config} <- Slipstream.Configuration.validate(config), do: :ok
+
+      {:error, :error} ->
+        {:error, %ArgumentError{message: "expected a :request or a :config option"}}
     end
   end
 
   @impl Slipstream
-  def init({parent, config}) do
+  def init(options) do
+    parent = Keyword.fetch!(options, :parent)
     parent_ref = Process.monitor(parent)
 
     socket =
-      config
-      |> Slipstream.connect!()
-      |> Slipstream.Socket.assign(
+      Slipstream.Socket.assign(Slipstream.new_socket(),
         parent: parent,
         parent_ref: parent_ref,
+        request: source(Keyword.get(options, :request)),
+        max_rejections: Keyword.get(options, :max_rejections, 5),
+        reconnect_delay: Keyword.get(options, :reconnect_delay),
+        reconnect: Keyword.get(options, :reconnect, true),
+        rejections: 0,
+        attempts: 0,
+        connecting: false,
+        parent_down: false,
         pids: %{},
         channel_connected: false,
         active_subscriptions: %{},
@@ -42,25 +92,68 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
         pending: []
       )
 
-    {:ok, socket}
+    # The config holds credentials. Slipstream keeps it in channel_config,
+    # which Inspect omits, so it must not be copied into the assigns.
+    case socket.assigns.request do
+      nil ->
+        socket = Slipstream.connect!(socket, Keyword.fetch!(options, :config))
+        {:ok, assign(socket, :connecting, true)}
+
+      %Source{} ->
+        first_connect(socket)
+    end
   end
 
-  @impl Slipstream
-  def handle_connect(socket) do
-    {:ok, join(socket, @control_topic)}
-  end
-
-  @impl Slipstream
-  def handle_disconnect(_reason, socket) do
-    case reconnect(socket) do
+  # The request is built here, in the socket, and connect/2 returns once
+  # the connection process exists. Slipstream monitors this process from
+  # that connection, so the parent must not be able to exit before the
+  # monitor is in place. A failed build takes the reconnect path. When the
+  # socket gives up at once, connect/2 returns the error and no Closed
+  # message is sent.
+  defp first_connect(socket) do
+    case attempt_connect(socket) do
       {:ok, socket} ->
-        {:ok,
-         socket
-         |> assign(:channel_connected, false)
-         |> enqueue_active_subscriptions()}
+        {:ok, socket}
 
       {:error, reason} ->
-        {:stop, reason, socket}
+        case next_attempt(socket, {:error, reason}) do
+          {:retry, socket} ->
+            {:ok, socket}
+
+          {:close, socket} ->
+            log_closed(socket, {:error, reason})
+            {:stop, {:shutdown, {:closed, classify({:error, reason})}}}
+        end
+    end
+  end
+
+  @impl Slipstream
+  def handle_connect(%{assigns: %{parent_down: true}} = socket) do
+    {:stop, :shutdown, socket}
+  end
+
+  def handle_connect(socket) do
+    {:ok,
+     socket
+     |> assign(rejections: 0, attempts: 0, connecting: false)
+     |> join(@control_topic)}
+  end
+
+  @impl Slipstream
+  def handle_disconnect(_reason, %{assigns: %{parent_down: true}} = socket) do
+    {:stop, :shutdown, socket}
+  end
+
+  def handle_disconnect(reason, socket) do
+    socket =
+      socket
+      |> assign(channel_connected: false, connecting: false)
+      |> fail_inflight(reason)
+      |> enqueue_active_subscriptions()
+
+    case next_attempt(socket, reason) do
+      {:retry, socket} -> {:ok, socket}
+      {:close, socket} -> close(socket, reason)
     end
   end
 
@@ -75,7 +168,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def handle_message(topic, "subscription:data" = event, %{"result" => payload}, socket) do
     case Map.fetch(socket.assigns.active_subscriptions, topic) do
-      {:ok, %Push{ref: ref, pid: pid}} ->
+      {:ok, %Op{ref: ref, pid: pid}} ->
         message = %AbsintheClient.WebSocket.Message{
           topic: topic,
           event: event,
@@ -97,9 +190,9 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   @impl Slipstream
   def handle_reply(push_ref, result, socket) do
     case pop_in(socket.assigns, [:inflight, push_ref]) do
-      {%Push{pid: pid} = push, assigns} when is_pid(pid) ->
-        if is_reference(push.ref) and push.pushed_counter == 1,
-          do: send(pid, reply(push, push_ref, result))
+      {%Op{pid: pid} = push, assigns} when is_pid(pid) ->
+        if is_reference(push.ref) and push.pushed_counter == 1 and not push.cancelled,
+          do: send(reply_to(push), reply(push, push_ref, result))
 
         new_socket = socket |> assign(assigns) |> maybe_update_subscriptions(push, result)
 
@@ -114,7 +207,12 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     end
   end
 
-  defp reply(%Push{} = push, push_ref, result),
+  # A document ref is a reply alias, so the reply also removes the caller's
+  # monitor. Unsubscribe pushes share one plain ref, so they reply to the pid.
+  defp reply_to(%Op{event: "doc", ref: ref}) when is_reference(ref), do: ref
+  defp reply_to(%Op{pid: pid}), do: pid
+
+  defp reply(%Op{} = push, push_ref, result),
     do: reply(%Reply{event: push.event, ref: push.ref, push_ref: push_ref}, result)
 
   defp reply(%Reply{} = reply, :ok), do: %{reply | status: :ok, payload: nil}
@@ -142,6 +240,16 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     socket
   end
 
+  # The caller gave up on the push before the subscription existed, so it
+  # is undone at once instead of forwarding data nobody can unsubscribe.
+  defp maybe_update_subscriptions(
+         socket,
+         %{event: "doc", cancelled: true, pid: pid},
+         {:ok, %{"subscriptionId" => sub_id}}
+       ) do
+    push_messages(socket, [unsubscribe(sub_id, pid, nil)])
+  end
+
   defp maybe_update_subscriptions(
          socket,
          %{event: "doc", pid: pid} = push,
@@ -159,7 +267,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
   defp maybe_update_subscriptions(socket, _, _), do: socket
 
   @impl Slipstream
-  def handle_info(%Push{pid: pid, event: event} = push, socket)
+  def handle_info(%Op{pid: pid, event: event} = push, socket)
       when is_pid(pid) and event == "doc" do
     {:noreply, socket |> update(:pending, &[push | &1]) |> push_messages()}
   end
@@ -170,15 +278,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
     sub_ids = sub_ids || []
 
-    unsubscribes =
-      Enum.map(sub_ids, fn sub_id ->
-        Push.new(
-          event: "unsubscribe",
-          params: %{"subscriptionId" => sub_id},
-          pid: pid,
-          ref: ref_or_nil
-        )
-      end)
+    unsubscribes = Enum.map(sub_ids, &unsubscribe(&1, pid, ref_or_nil))
 
     socket =
       socket
@@ -189,9 +289,59 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     {:noreply, socket}
   end
 
+  # The caller timed out waiting for this push. An unsent push is dropped,
+  # an inflight push is marked so its reply is not forwarded, and a
+  # subscription it already created is unsubscribed.
+  @impl Slipstream
+  def handle_info({:cancel, ref}, socket) do
+    {cancelled, active} =
+      Enum.split_with(socket.assigns.active_subscriptions, fn {_, op} -> op.ref == ref end)
+
+    sub_ids = Enum.map(cancelled, fn {sub_id, _} -> sub_id end)
+    unsubscribes = Enum.map(cancelled, fn {sub_id, op} -> unsubscribe(sub_id, op.pid, nil) end)
+
+    socket =
+      socket
+      |> update(:pending, &Enum.reject(&1, fn op -> op.ref == ref end))
+      |> update(:inflight, &Map.new(&1, fn {k, op} -> {k, cancel_op(op, ref)} end))
+      |> assign(:active_subscriptions, Map.new(active))
+      |> update(:pids, &Map.new(&1, fn {pid, ids} -> {pid, ids -- sub_ids} end))
+      |> push_messages(unsubscribes)
+
+    {:noreply, socket}
+  end
+
+  @impl Slipstream
+  def handle_info({:update_request, %Req.Request{} = request}, socket) do
+    {:noreply, assign(socket, :request, source(request))}
+  end
+
+  @impl Slipstream
+  def handle_info(:reconnect, socket) do
+    case attempt_connect(socket) do
+      {:ok, socket} ->
+        {:noreply, socket}
+
+      {:error, reason} ->
+        case handle_disconnect({:error, reason}, socket) do
+          {:ok, socket} -> {:noreply, socket}
+          {:stop, reason, socket} -> {:stop, reason, socket}
+        end
+    end
+  end
+
+  # The connection process monitors this one from its init. Erlang orders
+  # signals per sender only, so if the socket exits before it has handled
+  # that monitor signal, the connection gets a :noproc DOWN and crashes.
+  # Handling any message from the connection guarantees the monitor is in
+  # place, so a stop during a connection attempt waits for its outcome.
   @impl Slipstream
   def handle_info({:DOWN, ref, :process, _, _}, %{assigns: %{parent_ref: ref}} = socket) do
-    {:stop, :shutdown, socket}
+    if socket.assigns.connecting do
+      {:noreply, assign(socket, :parent_down, true)}
+    else
+      {:stop, :shutdown, socket}
+    end
   end
 
   @impl Slipstream
@@ -201,6 +351,13 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     )
 
     {:noreply, socket}
+  end
+
+  defp cancel_op(%Op{ref: ref} = op, ref), do: %{op | cancelled: true}
+  defp cancel_op(op, _ref), do: op
+
+  defp unsubscribe(sub_id, pid, ref) do
+    Op.new(event: "unsubscribe", params: %{"subscriptionId" => sub_id}, pid: pid, ref: ref)
   end
 
   defp push_messages(%{assigns: %{channel_connected: true}} = socket) do
@@ -217,7 +374,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
 
   defp push_messages(socket, []), do: socket
 
-  defp push_messages(socket, [%Push{} | _] = messages) do
+  defp push_messages(socket, [%Op{} | _] = messages) do
     update(socket, :inflight, fn inflight ->
       Enum.reduce(messages, inflight, fn op, acc ->
         {:ok, push_ref} = push_message(socket, op)
@@ -230,14 +387,277 @@ defmodule AbsintheClient.WebSocket.AbsintheWs do
     Slipstream.push(socket, @control_topic, op.event, op.params)
   end
 
+  # The server never answers a document sent over a connection that
+  # dropped. A first push is failed at once with a Closed for that push, so
+  # the caller decides whether to send it again, since a mutation may have
+  # run. A re-subscription is known to be safe and goes back to pending.
+  # The reason is classified like a close reason, so a drop reads as
+  # {:disconnected, reason} and a socket that then stops agrees with it.
+  defp fail_inflight(socket, reason) do
+    {resubscribes, firsts} =
+      socket.assigns.inflight
+      |> Map.values()
+      |> Enum.split_with(&(&1.pushed_counter > 1))
+
+    for %Op{event: "doc", ref: ref, cancelled: false} = op <- firsts, is_reference(ref) do
+      send(reply_to(op), %Closed{socket: self(), ref: ref, reason: classify(reason)})
+    end
+
+    socket
+    |> assign(:inflight, %{})
+    |> update(:pending, &(resubscribes ++ &1))
+  end
+
   defp enqueue_active_subscriptions(socket) do
     %{active_subscriptions: subs, pending: pending} = socket.assigns
 
     new_pending =
-      Enum.reduce(subs, pending, fn {_, %Push{} = push}, acc ->
+      Enum.reduce(subs, pending, fn {_, %Op{} = push}, acc ->
         [push | acc]
       end)
 
     assign(socket, active_subscriptions: %{}, pending: new_pending)
+  end
+
+  # The same switch as Req's `retry: false`: the socket stops on the first
+  # disconnect instead of reconnecting. The function sees the Closed reason,
+  # the same term the parent would get, not Slipstream's.
+  defp reconnect?(%{assigns: %{reconnect: fun}}, reason) when is_function(fun, 1),
+    do: fun.(classify(reason)) == true
+
+  defp reconnect?(%{assigns: %{reconnect: reconnect}}, _reason), do: reconnect == true
+
+  # Only a reachable server that refuses the connection, or a request that
+  # cannot be built, counts toward the limit. Transport errors, 5xx responses
+  # and the transient 4xx statuses retry forever.
+  defp rejection?({:error, {:upgrade_failure, %{status_code: status}}}),
+    do: status in 400..499 and status not in @transient_statuses
+
+  defp rejection?({:error, %Mint.TransportError{}}), do: false
+  defp rejection?({:error, %{__exception__: true}}), do: true
+  defp rejection?(_reason), do: false
+
+  # Builds the config from the request and asks Slipstream to connect.
+  defp attempt_connect(socket) do
+    with {:ok, config} <- refresh_config(socket),
+         {:ok, socket} <- Slipstream.connect(socket, config) do
+      {:ok, assign(socket, :connecting, true)}
+    end
+  end
+
+  # Decides whether the socket tries again and schedules the attempt if so.
+  defp next_attempt(socket, reason) do
+    cond do
+      not reconnect?(socket, reason) ->
+        {:close, socket}
+
+      rejection?(reason) ->
+        socket = update(socket, :rejections, &(&1 + 1))
+        %{rejections: rejections, max_rejections: max_rejections} = socket.assigns
+
+        if rejections >= max_rejections do
+          {:close, socket}
+        else
+          {delay, socket} = reconnect_delay(socket, reason)
+          log_rejection(reason, delay, max_rejections - rejections)
+          {:retry, schedule_reconnect(socket, delay)}
+        end
+
+      true ->
+        {delay, socket} = reconnect_delay(socket, reason)
+        log_retry(reason, delay)
+        {:retry, schedule_reconnect(socket, delay)}
+    end
+  end
+
+  # Slipstream.reconnect/1 re-uses the old config, so the backoff is scheduled by hand.
+  defp schedule_reconnect(socket, delay) do
+    Process.send_after(self(), :reconnect, delay)
+    socket
+  end
+
+  # The same knob as Req's :retry_delay. Without it a transport failure
+  # follows Slipstream's backoff and a rejection follows the Req retry
+  # backoff: the delay doubles from one second with jitter, and a
+  # Retry-After header wins.
+  defp reconnect_delay(socket, reason) do
+    count = socket.assigns.attempts
+    socket = assign(socket, :attempts, count + 1)
+
+    delay =
+      case socket.assigns.reconnect_delay do
+        nil -> default_delay(socket, reason, count)
+        delay when is_integer(delay) and delay >= 0 -> delay
+        fun when is_function(fun, 1) -> custom_delay(fun, count)
+      end
+
+    {delay, socket}
+  end
+
+  defp default_delay(socket, reason, count) do
+    cond do
+      delay = retry_after(reason) -> delay
+      rejection?(reason) -> exp_backoff_with_jitter(socket.assigns.rejections - 1)
+      true -> slipstream_delay(socket, count)
+    end
+  end
+
+  # Slipstream's list, as Slipstream.reconnect/1 reads it: the last value repeats.
+  defp slipstream_delay(%{channel_config: %{reconnect_after_msec: times}}, count),
+    do: Enum.at(times, count, List.last(times))
+
+  # A transport failure needs a connection, so the config is always set by
+  # then. This clause only keeps the socket alive if that ever changes.
+  defp slipstream_delay(_socket, count), do: exp_backoff_with_jitter(count)
+
+  defp custom_delay(fun, count) do
+    case fun.(count) do
+      delay when is_integer(delay) and delay >= 0 ->
+        delay
+
+      other ->
+        raise ArgumentError,
+              "expected :reconnect_delay function to return a non-negative integer, got: #{inspect(other)}"
+    end
+  end
+
+  # Req reads Retry-After on the same two statuses.
+  defp retry_after({:error, {:upgrade_failure, %{status_code: status, resp_headers: headers}}})
+       when status in [429, 503] do
+    Req.Response.get_retry_after(Req.Response.new(status: status, headers: headers))
+  end
+
+  defp retry_after(_reason), do: nil
+
+  defp exp_backoff_with_jitter(n) do
+    trunc(Integer.pow(2, n) * 1000 * (1 - 0.1 * :rand.uniform()))
+  end
+
+  defp log_rejection(reason, delay, left) do
+    left = if left == 1, do: "1 attempt", else: "#{left} attempts"
+
+    Logger.warning(
+      "#{inspect(__MODULE__)} #{describe(reason)}, will retry in #{delay}ms, #{left} left"
+    )
+  end
+
+  # Only an upgrade failure is logged. A transport error keeps the quiet retry from v0.1.
+  defp log_retry({:error, {:upgrade_failure, %{status_code: status}}}, delay) do
+    Logger.warning(
+      "#{inspect(__MODULE__)} connection failed with status #{status}, will retry in #{delay}ms"
+    )
+  end
+
+  defp log_retry(_reason, _delay), do: :ok
+
+  defp describe({:error, {:upgrade_failure, %{status_code: status}}}),
+    do: "connection rejected with status #{status}"
+
+  defp describe({:error, %{__exception__: true} = exception}),
+    do: "connection failed: (#{inspect(exception.__struct__)}) #{Exception.message(exception)}"
+
+  defp log_closed(%{assigns: %{rejections: rejections}}, reason) do
+    Logger.warning(
+      "#{inspect(__MODULE__)} #{closed_because(rejections)}, got: #{inspect(reason)}"
+    )
+  end
+
+  defp closed_because(0), do: "closed without reconnecting"
+  defp closed_because(rejections), do: "closed after #{rejections} rejected connection attempts"
+
+  defp source(nil), do: nil
+  defp source(%Req.Request{} = request), do: Source.new(request)
+
+  # Without a request there is nothing to refresh. Slipstream builds its
+  # struct from the validated options, so the struct converts back to them.
+  defp refresh_config(%{assigns: %{request: nil}, channel_config: config}),
+    do: {:ok, config |> Map.from_struct() |> Map.to_list()}
+
+  defp refresh_config(%{assigns: %{request: %Source{request: request}}}) do
+    case Config.build(request) do
+      {:ok, %Config{slipstream: config}} -> {:ok, config}
+      {:error, exception} -> {:error, exception}
+    end
+  rescue
+    exception ->
+      # The socket reports the exception without the trace, so log it here.
+      Logger.warning([
+        "#{inspect(__MODULE__)} failed to build the request\n",
+        Exception.format(:error, exception, __STACKTRACE__)
+      ])
+
+      {:error, exception}
+  end
+
+  defp close(socket, reason) do
+    # Unregister as soon as the socket decides to close, so a connect/2 that
+    # races the stop starts a new socket. terminate/2 repeats it for a crash.
+    unregister()
+    log_closed(socket, reason)
+
+    {:stop, {:shutdown, {:closed, classify(reason)}}, socket}
+  end
+
+  # Turns a Slipstream disconnect reason into a Closed reason, so callers
+  # match on terms this library owns rather than on Mint's.
+  defp classify({:error, {:upgrade_failure, %{status_code: status, resp_headers: headers}}}),
+    do: {:rejected, Req.Response.new(status: status, headers: headers)}
+
+  defp classify({:error, %Mint.TransportError{} = error}), do: {:disconnected, error}
+  defp classify({:error, %{__exception__: true} = exception}), do: {:request_failed, exception}
+  defp classify(reason), do: {:disconnected, reason}
+
+  # Every stop that is not an exit signal reaches terminate/2, so the
+  # notifications live here and a crash in a callback sends Closed too. An
+  # exit signal means the socket was killed or the application is stopping.
+  # Registered processes are linked to their Registry partition, so a Registry
+  # stop is an exit signal as well.
+  @impl Slipstream
+  def terminate(reason, socket) do
+    unregister()
+    notify_closed(socket, Closed.reason_from_exit(reason))
+    disconnect(socket)
+  end
+
+  # Unregister before Closed is sent, so a connect/2 made in response starts
+  # a new socket instead of finding this one still alive in the Registry.
+  # The Registry replaces the key of a dead process on its own, so a second
+  # call after close/2 is harmless.
+  defp unregister do
+    for key <- Registry.keys(AbsintheClient.SocketRegistry, self()),
+        do: Registry.unregister(AbsintheClient.SocketRegistry, key)
+  rescue
+    # The Registry is already down while the application stops.
+    ArgumentError -> :ok
+  end
+
+  defp notify_closed(socket, reason) do
+    %{parent: parent, pending: pending, inflight: inflight, active_subscriptions: active} =
+      socket.assigns
+
+    # An orderly close moves the active subscriptions to pending first, but
+    # a crash skips that step, so they are notified from here as well.
+    for {_sub_id, %Op{pid: pid, ref: ref}} <- active,
+        is_pid(pid),
+        do: send(pid, %Closed{socket: self(), ref: ref, reason: reason})
+
+    pushes =
+      Enum.map(pending, &{&1, &1.pushed_counter == 0}) ++
+        Enum.map(Map.values(inflight), &{&1, &1.pushed_counter == 1})
+
+    for {%Op{pid: pid, ref: ref} = push, awaiting_reply?} <- pushes, is_pid(pid) do
+      cond do
+        awaiting_reply? and is_reference(ref) ->
+          send(reply_to(push), %Closed{socket: self(), ref: ref, reason: reason})
+
+        push.event == "doc" and not awaiting_reply? ->
+          send(pid, %Closed{socket: self(), ref: ref, reason: reason})
+
+        true ->
+          :ok
+      end
+    end
+
+    send(parent, %Closed{socket: self(), ref: nil, reason: reason})
   end
 end

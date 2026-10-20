@@ -4,7 +4,8 @@ defmodule AbsintheClient.IntegrationTest do
   doctest AbsintheClient,
     only: [
       attach: 2
-    ]
+    ],
+    tags: [:capture_log]
 
   doctest AbsintheClient.WebSocket,
     only: [

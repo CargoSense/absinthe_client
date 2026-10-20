@@ -1,13 +1,18 @@
 defmodule AbsintheClient.WebSocket.AbsintheWsTest do
   use ExUnit.Case, async: false
   use Slipstream.SocketTest
-  alias AbsintheClient.WebSocket.AbsintheWs
+  import ExUnit.CaptureLog
+  alias AbsintheClient.WebSocket.{AbsintheWs, Closed, Reply}
 
   @control_topic "__absinthe__:control"
+  @rejection {:error, {:upgrade_failure, %{status_code: 403, resp_headers: [], reason: nil}}}
+  @rejected {:rejected, %Req.Response{status: 403}}
 
   test "connects and joins control topic" do
     socket_pid =
-      start_supervised!({AbsintheWs, {self(), uri: "ws://localhost", test_mode?: true}})
+      start_supervised!(
+        {AbsintheWs, parent: self(), config: [uri: "ws://localhost", test_mode?: true]}
+      )
 
     connect_and_assert_join socket_pid, @control_topic, %{}, :ok
   end
@@ -16,7 +21,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    _ref = AbsintheClient.WebSocket.push(client, {msg, nil})
+    _push = AbsintheClient.WebSocket.push(client, {msg, nil})
     assert_push @control_topic, "doc", %{query: ^msg}
   end
 
@@ -24,7 +29,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    _ref = AbsintheClient.WebSocket.push(client, {msg, %{"foo" => "bar"}})
+    _push = AbsintheClient.WebSocket.push(client, {msg, %{"foo" => "bar"}})
     assert_push @control_topic, "doc", %{query: ^msg, variables: %{"foo" => "bar"}}
   end
 
@@ -32,7 +37,7 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     client = start_client!()
     msg = "msg:#{System.unique_integer()}"
 
-    assert ref = AbsintheClient.WebSocket.push(client, msg)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, msg)
     assert_push @control_topic, "doc", %{query: ^msg}, push_ref
     reply(client, push_ref, {:ok, :this_is_not_a_real_result})
 
@@ -85,12 +90,53 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     }
   end
 
+  test "a document in flight when the connection drops gets a Closed at once" do
+    client = start_client!()
+    query = "msg:#{System.unique_integer()}"
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, _push_ref
+
+    disconnect(client, :closed)
+
+    assert {:error, %Closed{socket: ^client, ref: ^ref, reason: {:disconnected, :closed}}} =
+             AbsintheClient.WebSocket.await_reply(push, 500)
+
+    # The socket is alive and the document is not re-sent on reconnect.
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    refute_push @control_topic, "doc", %{query: ^query}
+    assert %{assigns: %{inflight: inflight}} = :sys.get_state(client)
+    assert inflight == %{}
+  end
+
+  test "a re-subscription in flight when the connection drops is re-sent" do
+    client = start_client!()
+    sub_id = subscribe!(client)
+
+    %{assigns: %{active_subscriptions: %{^sub_id => %{ref: ref, params: %{query: query}}}}} =
+      :sys.get_state(client)
+
+    disconnect(client, :closed)
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    assert_push @control_topic, "doc", %{query: ^query}, _resub_ref
+
+    # The connection drops again before the server replies.
+    disconnect(client, :closed)
+    refute_received %Closed{ref: ^ref}
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    assert_push @control_topic, "doc", %{query: ^query}, resub_ref
+    reply(client, resub_ref, {:ok, %{"subscriptionId" => new_sub_id = sub_id(client)}})
+
+    push(client, new_sub_id, "subscription:data", %{"result" => %{"ok" => true}})
+    assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: %{"ok" => true}}
+  end
+
   test "enqueues on disconnect and re-subscribes on reconnect" do
     client = start_client!()
 
     # client: sends subscription to the server
     query = "msg:#{System.unique_integer()}"
-    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, query)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref
@@ -118,16 +164,359 @@ defmodule AbsintheClient.WebSocket.AbsintheWsTest do
     assert_receive %AbsintheClient.WebSocket.Message{ref: ^ref, payload: ^expected_payload}
   end
 
-  defp start_client!(opts \\ [uri: "wss://localhost"]) do
-    client_opts = Keyword.put_new(opts, :test_mode?, true)
-    client_pid = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), client_opts}})
+  test "dropped connections do not count toward max rejections" do
+    client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 1)
+    ref = Process.monitor(client)
+
+    disconnect(client, :closed)
+    connect_and_assert_join client, @control_topic, %{}, :ok
+
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+  end
+
+  test "transport errors do not count toward max rejections" do
+    client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 1)
+    ref = Process.monitor(client)
+
+    disconnect(client, {:error, %Mint.TransportError{reason: :econnrefused}})
+    connect_and_assert_join client, @control_topic, %{}, :ok
+
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+  end
+
+  @tag :capture_log
+  test "waits for the reconnect delay before each reconnect attempt" do
+    test_pid = self()
+
+    delay = fn count ->
+      send(test_pid, {:reconnect_delay, count})
+      1
+    end
+
+    client =
+      start_client!([uri: "wss://localhost"], max_rejections: 3, reconnect_delay: delay)
+
+    disconnect(client, @rejection)
+    assert_receive {:reconnect_delay, 0}
+
+    disconnect(client, @rejection)
+    assert_receive {:reconnect_delay, 1}
+  end
+
+  test "the reconnect delay also applies to dropped connections" do
+    test_pid = self()
+
+    delay = fn count ->
+      send(test_pid, {:reconnect_delay, count})
+      1
+    end
+
+    client = start_client!([uri: "wss://localhost"], reconnect_delay: delay)
+
+    disconnect(client, :closed)
+    assert_receive {:reconnect_delay, 0}
+    connect_and_assert_join client, @control_topic, %{}, :ok
+
+    # A successful connection resets the attempt count.
+    disconnect(client, :closed)
+    assert_receive {:reconnect_delay, 0}
+  end
+
+  @tag :capture_log
+  test "408 and 429 responses do not count toward max rejections" do
+    for status <- [408, 429] do
+      client = start_client!([uri: "wss://localhost"], max_rejections: 1)
+      ref = Process.monitor(client)
+
+      disconnect(client, {:error, {:upgrade_failure, %{status_code: status, resp_headers: []}}})
+      _ = :sys.get_state(client)
+
+      refute_received {:DOWN, ^ref, :process, ^client, _}
+      stop_supervised!(AbsintheWs)
+    end
+  end
+
+  @tag :capture_log
+  test "429 and 503 responses set the delay from their Retry-After header" do
+    for status <- [429, 503] do
+      client = start_client!([uri: "wss://localhost"], max_rejections: 1)
+
+      log =
+        capture_log(fn ->
+          disconnect(
+            client,
+            {:error,
+             {:upgrade_failure,
+              %{status_code: status, resp_headers: [{"retry-after", "7"}], reason: nil}}}
+          )
+
+          _ = :sys.get_state(client)
+        end)
+
+      assert log =~ "connection failed with status #{status}, will retry in 7000ms"
+      stop_supervised!(AbsintheWs)
+    end
+  end
+
+  @tag :capture_log
+  test "reconnect: false stops the socket on the first disconnect" do
+    client = start_client!([uri: "wss://localhost"], reconnect: false)
+    monitor_ref = Process.monitor(client)
+
+    log =
+      capture_log(fn ->
+        disconnect(client, :closed)
+
+        assert_receive {:DOWN, ^monitor_ref, :process, ^client,
+                        {:shutdown, {:closed, {:disconnected, :closed}}}}
+      end)
+
+    assert log =~ "closed without reconnecting"
+    assert_received %Closed{socket: ^client, ref: nil, reason: {:disconnected, :closed}}
+  end
+
+  @tag :capture_log
+  test "a reconnect function decides per disconnect reason" do
+    client =
+      start_client!([uri: "wss://localhost", reconnect_after_msec: [1]],
+        reconnect: &match?({:disconnected, %Mint.TransportError{}}, &1)
+      )
+
+    monitor_ref = Process.monitor(client)
+
+    disconnect(client, {:error, %Mint.TransportError{reason: :econnrefused}})
+    connect_and_assert_join client, @control_topic, %{}, :ok
+    refute_received {:DOWN, ^monitor_ref, :process, ^client, _}
+
+    disconnect(client, :closed)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client,
+                    {:shutdown, {:closed, {:disconnected, :closed}}}}
+  end
+
+  @tag :capture_log
+  test "a crash sends Closed to the parent and the subscribers" do
+    client = start_client!()
+    monitor_ref = Process.monitor(client)
+    sub_id = subscribe!(client)
+    %{assigns: %{active_subscriptions: %{^sub_id => %{ref: ref}}}} = :sys.get_state(client)
+
+    # The handler expects a "result" key, so this message crashes the socket.
+    push(client, sub_id, "subscription:data", %{"unexpected" => true})
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:function_clause, _}}
+    assert_received %Closed{socket: ^client, ref: ^ref, reason: {:crashed, {:function_clause, _}}}
+    assert_received %Closed{socket: ^client, ref: nil, reason: {:crashed, {:function_clause, _}}}
+  end
+
+  test "a parent exit during a connection attempt stops the socket after the attempt" do
+    parent = spawn(fn -> receive do: (:exit -> :ok) end)
+
+    client =
+      start_supervised!(
+        {AbsintheWs, parent: parent, config: [uri: "wss://localhost", test_mode?: true]}
+      )
+
+    ref = Process.monitor(client)
+    send(parent, :exit)
+    _ = :sys.get_state(client)
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+
+    accept_connect(client)
+    assert_receive {:DOWN, ^ref, :process, ^client, :shutdown}
+  end
+
+  test "a reply removes the caller's monitor on the socket" do
+    client = start_client!()
+    msg = "msg:#{System.unique_integer()}"
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, msg)
+    assert_push @control_topic, "doc", %{query: ^msg}, push_ref
+    reply(client, push_ref, {:ok, :result})
+    assert {:ok, %Reply{ref: ^ref}} = AbsintheClient.WebSocket.await_reply(push)
+
+    monitor_ref = Process.monitor(client)
+    Process.exit(client, :kill)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^client, :killed}
+
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+  end
+
+  test "await_reply/2 drops a reply that arrives after the timeout" do
+    client = start_client!()
+    msg = "msg:#{System.unique_integer()}"
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, msg)
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{ref: ^ref, timeout: 0}} =
+             AbsintheClient.WebSocket.await_reply(push, 0)
+
+    assert_push @control_topic, "doc", %{query: ^msg}, push_ref
+    reply(client, push_ref, {:ok, :late})
+    _ = :sys.get_state(client)
+
+    refute_received %Reply{ref: ^ref}
+  end
+
+  test "a subscription created after the timeout is unsubscribed at once" do
+    client = start_client!()
+    query = subscription_query()
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, push_ref
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{}} =
+             AbsintheClient.WebSocket.await_reply(push, 0)
+
+    sub_id = sub_id(client)
+    reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id}})
+
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_id}
+    refute_received %Reply{ref: ^ref}
+    assert %{assigns: %{active_subscriptions: active}} = :sys.get_state(client)
+    refute Map.has_key?(active, sub_id)
+  end
+
+  test "a push that timed out before it was sent is dropped" do
+    client =
+      start_supervised!(
+        {AbsintheWs, parent: self(), config: [uri: "wss://localhost", test_mode?: true]}
+      )
+
+    push = AbsintheClient.WebSocket.push(client, "msg")
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{}} =
+             AbsintheClient.WebSocket.await_reply(push, 0)
+
+    assert %{assigns: %{pending: []}} = :sys.get_state(client)
+  end
+
+  test "a cancelled push unsubscribes the subscription it already created" do
+    client = start_client!()
+    sub_id = subscribe!(client)
+    %{assigns: %{active_subscriptions: %{^sub_id => %{ref: ref}}}} = :sys.get_state(client)
+
+    send(client, {:cancel, ref})
+
+    assert_push @control_topic, "unsubscribe", %{"subscriptionId" => ^sub_id}
+    assert %{assigns: %{active_subscriptions: active, pids: pids}} = :sys.get_state(client)
+    refute Map.has_key?(active, sub_id)
+    refute sub_id in Map.get(pids, self(), [])
+  end
+
+  test "await_reply!/2 raises when the server does not reply in time" do
+    client = start_client!()
+    push = AbsintheClient.WebSocket.push(client, "msg")
+
+    assert_raise AbsintheClient.WebSocket.Timeout, ~r/no reply/, fn ->
+      AbsintheClient.WebSocket.await_reply!(push, 0)
+    end
+  end
+
+  test "Req.request/2 returns 200 for a result with errors and 500 for a bare failure" do
+    client = start_client!()
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    task = Task.async(fn -> Req.request!(req, web_socket: client, graphql: "msg") end)
+    assert_push @control_topic, "doc", %{query: "msg"}, push_ref
+    reply(client, push_ref, {:error, %{"errors" => [%{"message" => "bad field"}]}})
+    assert %Req.Response{status: 200, body: %{"errors" => [_]}} = Task.await(task)
+
+    # Only this request may be retried, so Req is told not to.
+    task =
+      Task.async(fn -> Req.request!(req, web_socket: client, graphql: "msg", retry: false) end)
+
+    assert_push @control_topic, "doc", %{query: "msg"}, push_ref
+    reply(client, push_ref, {:error, "internal error"})
+    assert %Req.Response{status: 500, body: "internal error"} = Task.await(task)
+  end
+
+  test "Req.request/2 returns an error when the server does not reply in time" do
+    client = start_client!()
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:error, %AbsintheClient.WebSocket.Timeout{timeout: 0}} =
+             Req.request(req, web_socket: client, graphql: "msg", receive_timeout: 0)
+  end
+
+  @tag :capture_log
+  test "closes after max rejections and notifies the parent and subscribers" do
+    client = start_client!([uri: "wss://localhost", reconnect_after_msec: [1]], max_rejections: 2)
+    monitor_ref = Process.monitor(client)
+
+    query = subscription_query()
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, push_ref
+    reply(client, push_ref, {:ok, %{"subscriptionId" => sub_id(client)}})
+    assert_receive %Reply{ref: ^ref, status: :ok}
+
+    disconnect(client, @rejection)
+    _ = :sys.get_state(client)
+    refute_received %Closed{}
+
+    log =
+      capture_log(fn ->
+        disconnect(client, @rejection)
+
+        assert_receive {:DOWN, ^monitor_ref, :process, ^client, {:shutdown, {:closed, @rejected}}}
+      end)
+
+    assert log =~ "closed after 2 rejected connection attempts"
+    assert_received %Closed{socket: ^client, ref: ^ref, reason: @rejected}
+    assert_received %Closed{socket: ^client, ref: nil, reason: @rejected}
+    # The reply removed the monitor, so an orderly close sends Closed only.
+    refute_received {:DOWN, ^ref, :process, ^client, _}
+  end
+
+  @tag :capture_log
+  test "returns a closed error to pushes awaiting a reply when closing" do
+    client = start_client!([uri: "wss://localhost"], max_rejections: 1)
+
+    query = subscription_query()
+    assert %{ref: ref} = push = AbsintheClient.WebSocket.push(client, query)
+    assert_push @control_topic, "doc", %{query: ^query}, _push_ref
+
+    disconnect(client, @rejection)
+
+    assert {:error, %Closed{socket: ^client, ref: ^ref, reason: @rejected}} =
+             AbsintheClient.WebSocket.await_reply(push)
+
+    assert_receive %Closed{socket: ^client, ref: nil, reason: @rejected}
+    refute_received %Closed{ref: ^ref}
+  end
+
+  test "a socket exit reason converts to the same Closed reason a message carries" do
+    ref = make_ref()
+
+    assert %Closed{socket: self(), ref: ref, reason: @rejected} ==
+             Closed.from_exit(self(), ref, {:shutdown, {:closed, @rejected}})
+
+    assert %Closed{reason: :noproc} = Closed.from_exit(self(), ref, :noproc)
+    assert %Closed{reason: :shutdown} = Closed.from_exit(self(), ref, :shutdown)
+
+    assert %Closed{reason: {:crashed, {:badarg, []}}} =
+             Closed.from_exit(self(), ref, {:badarg, []})
+  end
+
+  test "adopts an updated request" do
+    client = start_client!()
+    request = Req.new(url: "ws://localhost")
+
+    send(client, {:update_request, request})
+
+    assert %{assigns: %{request: %{request: ^request}}} = :sys.get_state(client)
+  end
+
+  defp start_client!(config \\ [uri: "wss://localhost"], opts \\ []) do
+    client_opts = Keyword.put_new(config, :test_mode?, true)
+    client_pid = start_supervised!({AbsintheWs, [parent: self(), config: client_opts] ++ opts})
     connect_and_assert_join client_pid, @control_topic, %{}, :ok
     client_pid
   end
 
   defp subscribe!(client, query \\ subscription_query()) do
     # client: sends subscription to the server
-    assert ref = AbsintheClient.WebSocket.push(client, query)
+    assert %{ref: ref} = AbsintheClient.WebSocket.push(client, query)
 
     # server: receives subscription and replies with subscriptionId
     assert_push @control_topic, "doc", %{query: ^query}, push_ref

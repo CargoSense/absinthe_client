@@ -1,7 +1,9 @@
 defmodule AbsintheClient.WebSocketTest do
   use ExUnit.Case
+  import ExUnit.CaptureLog
+  require Slipstream.Signatures
 
-  doctest AbsintheClient.WebSocket.Push
+  doctest AbsintheClient.WebSocket.Op
 
   defmodule Listener do
     use GenServer
@@ -35,9 +37,10 @@ defmodule AbsintheClient.WebSocketTest do
     }
     """
 
-    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
+    client =
+      start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
-    ref = AbsintheClient.WebSocket.push(client, {query, %{"repository" => "ABSINTHE"}})
+    %{ref: ref} = AbsintheClient.WebSocket.push(client, {query, %{"repository" => "ABSINTHE"}})
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
@@ -47,9 +50,10 @@ defmodule AbsintheClient.WebSocketTest do
   end
 
   test "push/2 replies with errors for invalid or unknown operations", %{socket_url: uri} do
-    client = start_supervised!({AbsintheClient.WebSocket.AbsintheWs, {self(), uri: uri}})
+    client =
+      start_supervised!({AbsintheClient.WebSocket.AbsintheWs, parent: self(), config: [uri: uri]})
 
-    ref = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
+    %{ref: ref} = AbsintheClient.WebSocket.push(client, "query { doesNotExist { id } }")
 
     assert_receive %AbsintheClient.WebSocket.Reply{
       ref: ^ref,
@@ -64,7 +68,7 @@ defmodule AbsintheClient.WebSocketTest do
       }
     }
 
-    ref =
+    %{ref: ref} =
       AbsintheClient.WebSocket.push(
         client,
         """
@@ -92,6 +96,294 @@ defmodule AbsintheClient.WebSocketTest do
         ]
       }
     }
+  end
+
+  test "connect/2 re-uses the socket when only credentials change" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "a"})
+    assert {:ok, ^ws} = AbsintheClient.WebSocket.connect(req, auth: {:bearer, "b"})
+
+    assert %{assigns: %{request: %{request: %Req.Request{options: %{auth: {:bearer, "b"}}}}}} =
+             :sys.get_state(ws)
+  end
+
+  test "connect/2 returns an error when anything but the credentials differs" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, max_rejections: 2)
+
+    assert {:error, %ArgumentError{message: message}} =
+             AbsintheClient.WebSocket.connect(req, max_rejections: 3, reconnect: false)
+
+    assert message =~ "already running with different :max_rejections, :reconnect"
+
+    assert {:error, %ArgumentError{message: message}} =
+             AbsintheClient.WebSocket.connect(req,
+               max_rejections: 2,
+               headers: [{"x-tenant", "a"}]
+             )
+
+    assert message =~ "different :headers"
+    assert {:ok, ^ws} = AbsintheClient.WebSocket.connect(req, max_rejections: 2)
+  end
+
+  test "the socket state does not expose the credentials" do
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "super-secret-token"})
+      |> AbsintheClient.attach(connect_params: %{"token" => "super-secret-token"})
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+
+    refute inspect(:sys.get_state(ws), limit: :infinity, printable_limit: :infinity) =~
+             "super-secret-token"
+  end
+
+  test "connect/2 rejects an invalid :reconnect option" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:error, %ArgumentError{message: message}} =
+             AbsintheClient.WebSocket.connect(req, reconnect: :never)
+
+    assert message =~ "expected :reconnect to be a boolean or a 1-arity function"
+  end
+
+  test "connect/2 starts a socket per URL" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+    assert {:ok, auth_ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    assert ws != auth_ws
+  end
+
+  test "runs the auth function in the socket process on every attempt" do
+    test_pid = self()
+
+    auth = fn ->
+      send(test_pid, {:auth_called, self()})
+      {:bearer, "valid-token"}
+    end
+
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002", auth: auth))
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    assert_receive {:auth_called, ^ws}
+    refute_received {:auth_called, ^test_pid}
+  end
+
+  @tag :capture_log
+  test "a raise in the auth function counts as a rejection and logs the stacktrace" do
+    req =
+      Req.new(
+        base_url: "http://localhost:4002",
+        auth: fn -> raise "token service unavailable" end
+      )
+      |> AbsintheClient.attach(max_rejections: 2, reconnect_delay: 10)
+
+    log =
+      capture_log(fn ->
+        assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+        assert_receive %AbsintheClient.WebSocket.Closed{
+          socket: ^ws,
+          ref: nil,
+          reason: {:request_failed, %RuntimeError{message: "token service unavailable"}}
+        }
+      end)
+
+    assert log =~ "failed to build the request"
+    assert log =~ "** (RuntimeError) token service unavailable"
+    assert log =~ Path.basename(__ENV__.file)
+  end
+
+  test "does not run the auth function for operations over the socket" do
+    calls = start_supervised!({Agent, fn -> 0 end})
+
+    auth = fn ->
+      Agent.update(calls, &(&1 + 1))
+      {:bearer, "valid-token"}
+    end
+
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002", auth: auth))
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    assert %{status: 200} =
+             Req.request!(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+
+    assert Agent.get(calls, & &1) == 1
+  end
+
+  @tag :capture_log
+  test "connect/2 returns the error when a raise in the auth function is not retried" do
+    req =
+      Req.new(
+        base_url: "http://localhost:4002",
+        auth: fn -> raise "token service unavailable" end
+      )
+      |> AbsintheClient.attach(max_rejections: 1)
+
+    assert {:error, %RuntimeError{message: "token service unavailable"}} =
+             AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    refute_received %AbsintheClient.WebSocket.Closed{}
+  end
+
+  @tag :capture_log
+  test "re-runs the auth function before each connection attempt" do
+    calls = start_supervised!({Agent, fn -> 0 end})
+
+    token = fn ->
+      case Agent.get_and_update(calls, &{&1, &1 + 1}) do
+        0 -> "invalid-token"
+        _ -> "valid-token"
+      end
+    end
+
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: fn -> {:bearer, token.()} end)
+      |> AbsintheClient.attach()
+
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, url: "/auth-socket/websocket")
+
+    %{ref: ref} = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+
+    # The first attempt is rejected and the retry waits about a second.
+    assert_receive %AbsintheClient.WebSocket.Reply{ref: ^ref, status: :ok}, 5_000
+    assert Agent.get(calls, & &1) >= 2
+  end
+
+  @tag :capture_log
+  test "stops after max rejections and returns the close reason" do
+    # Req's default retry must not re-push to the closed socket.
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach()
+
+    assert {:ok, ws} =
+             AbsintheClient.WebSocket.connect(req,
+               url: "/auth-socket/websocket",
+               max_rejections: 2,
+               reconnect_delay: 10
+             )
+
+    monitor_ref = Process.monitor(ws)
+
+    assert {:error,
+            %AbsintheClient.WebSocket.Closed{
+              socket: ^ws,
+              reason: {:rejected, %Req.Response{status: 403}}
+            }} =
+             Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+
+    assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
+  end
+
+  @tag :capture_log
+  test "connect/2 after Closed starts a new socket" do
+    # Attach a telemetry handler that will pause the closing socket to guarantee
+    # that the subsequent connect arrives before the close completes.
+    handler_id = {__MODULE__, make_ref()}
+    event = [:slipstream, :client, :handle_disconnect, :stop]
+    :telemetry.attach(handler_id, event, &__MODULE__.pause_closing_socket/4, self())
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach()
+
+    options = [url: "/auth-socket/websocket", max_rejections: 1]
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
+
+    # The test waits for the telemetry handler to say the socket is `:closing`.
+    # The telemetry handler then blocks the close while waiting for `:resume`.
+    assert_receive {:closing, ^ws}
+
+    assert {:ok, new_ws} = AbsintheClient.WebSocket.connect(req, options)
+    send(ws, :resume)
+    assert_receive %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: nil}
+
+    refute new_ws == ws
+  end
+
+  def pause_closing_socket(_event, _measurements, metadata, parent) do
+    case metadata do
+      %{return: {:stop, _, _}, socket: %{assigns: %{parent: ^parent}}} ->
+        send(parent, {:closing, self()})
+
+        receive do
+          :resume -> :ok
+        after
+          1_000 -> :ok
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  @tag :capture_log
+  test "await_reply/2 returns an error for a push to a closed socket" do
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach()
+
+    options = [url: "/auth-socket/websocket", max_rejections: 1]
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
+
+    monitor_ref = Process.monitor(ws)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
+
+    %{ref: ref} = push = AbsintheClient.WebSocket.push(ws, ~S|{ __type(name: "Repo") { name } }|)
+
+    assert {:error, %AbsintheClient.WebSocket.Closed{socket: ^ws, ref: ^ref, reason: :noproc}} =
+             AbsintheClient.WebSocket.await_reply(push, 1_000)
+  end
+
+  @tag :capture_log
+  test "Req.request/2 returns an error for a push to a closed socket" do
+    req =
+      Req.new(base_url: "http://localhost:4002", auth: {:bearer, "invalid-token"})
+      |> AbsintheClient.attach()
+
+    options = [url: "/auth-socket/websocket", max_rejections: 1]
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req, options)
+
+    monitor_ref = Process.monitor(ws)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:shutdown, {:closed, _}}}
+
+    assert {:error, %AbsintheClient.WebSocket.Closed{socket: ^ws, reason: :noproc}} =
+             Req.request(req, web_socket: ws, graphql: ~S|{ __type(name: "Repo") { name } }|)
+  end
+
+  @tag :capture_log
+  test "a crash unregisters the socket before Closed is sent" do
+    req = AbsintheClient.attach(Req.new(base_url: "http://localhost:4002"))
+    assert {:ok, ws} = AbsintheClient.WebSocket.connect(req)
+    monitor_ref = Process.monitor(ws)
+
+    # The handler expects a "result" key, so this event crashes the socket.
+    bad_event = %Slipstream.Events.MessageReceived{
+      topic: "t",
+      event: "subscription:data",
+      payload: %{}
+    }
+
+    send(ws, Slipstream.Signatures.event(bad_event))
+
+    assert_receive %AbsintheClient.WebSocket.Closed{
+      socket: ^ws,
+      ref: nil,
+      reason: {:crashed, {:function_clause, _}}
+    }
+
+    assert Registry.keys(AbsintheClient.SocketRegistry, ws) == []
+    assert {:ok, new_ws} = AbsintheClient.WebSocket.connect(req)
+    assert new_ws != ws and Process.alive?(new_ws)
+
+    # The crash report is logged after terminate/2, so wait for the exit.
+    assert_receive {:DOWN, ^monitor_ref, :process, ^ws, {:function_clause, _}}
   end
 
   test "monitors parent and exits on down", %{socket_url: socket_url} do

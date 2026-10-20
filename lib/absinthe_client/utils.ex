@@ -15,8 +15,7 @@ defmodule AbsintheClient.Utils do
       iex> AbsintheClient.Utils.request_json!({"query{...}", %{a: :b}})
       %{query: "query{...}", variables: %{a: :b}}
 
-      iex> AbsintheClient.Utils.request_json!(:foo)
-      ** (ArgumentError) invalid GraphQL query, expected String.t() or {String.t(), map()}, got: :foo
+  Raises `ArgumentError` for any other value, see `query_vars!/1`.
   """
   def request_json!(graphql) do
     case query_vars!(graphql) do
